@@ -518,7 +518,8 @@ func (s *Service) AddTransaction(req *AddTxRequest) (*AddTxResponse, error) {
 		// In case we don't have any blocks, because there are no transactions,
 		// have a hard timeout in twice the minimal expected time to create the
 		// blocks.
-		tooLongDur := time.Duration(req.InclusionWait) * interval * 2
+		//tooLongDur := time.Duration(req.InclusionWait) * interval * 2
+		tooLongDur := time.Duration(req.InclusionWait) * interval
 		tooLong := time.After(tooLongDur)
 
 		blocksLeft := req.InclusionWait

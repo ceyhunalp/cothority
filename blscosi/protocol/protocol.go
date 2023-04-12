@@ -32,7 +32,7 @@ func init() {
 }
 
 //const defaultTimeout = 10 * time.Second
-const defaultTimeout = 90 * time.Second
+const defaultTimeout = 300 * time.Second
 const defaultSubleaderFailures = 2
 
 // VerificationFn is called on every node. Where msg is the message that is

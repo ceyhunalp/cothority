@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+
 	"go.dedis.ch/cothority/v3/blscosi/bdnproto"
 	"go.dedis.ch/cothority/v3/blscosi/protocol"
 	"go.dedis.ch/cothority/v3/byzcoinx"
@@ -33,7 +34,8 @@ var ErrorInconsistentForwardLink = errors.New("found inconsistent forward-link")
 
 // How long to wait before a timeout is generated in the propagation. It is not
 // set to a constant because we'd like to change it in the test.
-var defaultPropagateTimeout = 15 * time.Second
+//var defaultPropagateTimeout = 15 * time.Second
+var defaultPropagateTimeout = 300 * time.Second
 
 // SkipBlockID represents the Hash of the SkipBlock
 type SkipBlockID []byte

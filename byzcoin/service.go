@@ -537,7 +537,7 @@ func (s *Service) AddTransaction(req *AddTxRequest) (*AddTxResponse, error) {
 					return nil, xerrors.Errorf("did not find transaction after %v blocks", req.InclusionWait)
 				}
 			case <-tooLong:
-				return nil, xerrors.Errorf("transaction didn't get included after %v (2 * t_block * %d)", tooLongDur, req.InclusionWait)
+				return nil, xerrors.Errorf("transaction didn't get included after %v (t_block * %d)", tooLongDur, req.InclusionWait)
 			}
 		}
 	}

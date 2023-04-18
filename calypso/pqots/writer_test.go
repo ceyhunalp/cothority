@@ -164,18 +164,19 @@ func TestAll(t *testing.T) {
 	require.True(t, prRe2.InclusionProof.Match(re2.InstanceID.Slice()))
 
 	// These requests should fail
-	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Read: *prRe2,
-		Write: *prWr1})
+	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Threshold: thr,
+		Read: *prRe2, Write: *prWr1})
 	require.NotNil(t, err)
-	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Read: *prRe1,
-		Write: *prWr2})
+	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Threshold: thr,
+		Read: *prRe1, Write: *prWr2})
 	require.NotNil(t, err)
 
 	// Valid decrypt request for reader1
 	dkr1, err := cl.DecryptKey(&DecryptKeyRequest{
-		Roster: roster,
-		Read:   *prRe1,
-		Write:  *prWr1,
+		Roster:    roster,
+		Threshold: thr,
+		Read:      *prRe1,
+		Write:     *prWr1,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, dkr1.Reencryptions)
@@ -195,9 +196,10 @@ func TestAll(t *testing.T) {
 
 	// Valid decrypt request for reader2
 	dkr2, err := cl.DecryptKey(&DecryptKeyRequest{
-		Roster: roster,
-		Read:   *prRe2,
-		Write:  *prWr2,
+		Roster:    roster,
+		Threshold: thr,
+		Read:      *prRe2,
+		Write:     *prWr2,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, dkr2.Reencryptions)

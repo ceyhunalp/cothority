@@ -106,6 +106,7 @@ func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
 			err)
 	}
 	pqotsProto := pi.(*protocol.PQOTS)
+	pqotsProto.Threshold = req.Threshold
 	pqotsProto.Xc = read.Xc
 	verificationData := &vData{
 		Read:  &req.Read,

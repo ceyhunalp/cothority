@@ -43,7 +43,6 @@ func NewOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 	ots := &OTS{
 		TreeNodeInstance: n,
 		Reencrypted:      make(chan bool, 1),
-		Threshold:        len(n.Roster().List) - (len(n.Roster().List)-1)/3,
 	}
 	err := ots.RegisterHandlers(ots.reencrypt, ots.reencryptReply)
 	if err != nil {
@@ -53,16 +52,16 @@ func NewOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 }
 
 func (o *OTS) Start() error {
+	o.timeout = time.AfterFunc(1*time.Minute, func() {
+		log.Lvl1("OTS protocol timeout")
+		o.finish(false)
+	})
 	rc := &Reencrypt{
 		Xc: o.Xc,
 	}
 	if len(o.VerificationData) > 0 {
 		rc.VerificationData = &o.VerificationData
 	}
-	o.timeout = time.AfterFunc(1*time.Minute, func() {
-		log.Lvl1("OTS protocol timeout")
-		o.finish(false)
-	})
 	if o.Verify != nil {
 		o.Share, o.Proof, o.PolicyID = o.Verify(rc, o.Index())
 		if o.Share == nil || o.Proof == nil || o.PolicyID == nil {
@@ -74,25 +73,19 @@ func (o *OTS) Start() error {
 	sh, err := pvss.DecShare(cothority.Suite, h, o.Public(), o.Proof,
 		o.Private(), o.Share)
 	if err != nil {
-		o.Failures++
-		log.Lvl1(o.ServerIdentity(), "cannot reencrypt:", err.Error())
-	} else {
-		K, Cs, err := elGamalEncrypt(cothority.Suite, o.Xc, sh)
-		if err != nil {
-			o.Failures++
-			log.Lvl1(o.ServerIdentity(), "cannot reencrypt:", err.Error())
-		} else {
-			o.replies = append(o.replies, ReencryptReply{
-				Index: sh.S.I,
-				Egp:   &EGP{K: K, Cs: Cs},
-			})
-		}
+		o.finish(false)
+		return xerrors.Errorf("cannot reencrypt:", err.Error())
 	}
-	//o.timeout = time.AfterFunc(1*time.Minute, func() {
-	//	log.Lvl1("OTS protocol timeout")
-	//	o.finish(false)
-	//})
-	errs := o.Broadcast(rc)
+	K, Cs, err := elGamalEncrypt(cothority.Suite, o.Xc, sh)
+	if err != nil {
+		o.finish(false)
+		return xerrors.Errorf("cannot reencrypt:", err.Error())
+	}
+	o.replies = append(o.replies, ReencryptReply{
+		Index: sh.S.I,
+		Egp:   &EGP{K: K, Cs: Cs},
+	})
+	errs := o.SendToChildrenInParallel(rc)
 	if len(errs) > (len(o.Roster().List)-1)/3 {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
 		return xerrors.New("too many nodes failed in broadcast")

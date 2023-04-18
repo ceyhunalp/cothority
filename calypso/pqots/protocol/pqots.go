@@ -38,7 +38,6 @@ func NewPQOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 	pqOts := &PQOTS{
 		TreeNodeInstance: n,
 		Reencrypted:      make(chan bool, 1),
-		Threshold:        len(n.Roster().List) - (len(n.Roster().List)-1)/3,
 	}
 	err := pqOts.RegisterHandlers(pqOts.reencrypt, pqOts.reencryptReply)
 	if err != nil {
@@ -48,16 +47,16 @@ func NewPQOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 }
 
 func (p *PQOTS) Start() error {
+	p.timeout = time.AfterFunc(1*time.Minute, func() {
+		log.Lvl1("PQOTS protocol timeout")
+		p.finish(false)
+	})
 	rc := &Reencrypt{
 		Xc: p.Xc,
 	}
 	if len(p.VerificationData) > 0 {
 		rc.VerificationData = &p.VerificationData
 	}
-	p.timeout = time.AfterFunc(1*time.Minute, func() {
-		log.Lvl1("PQOTS protocol timeout")
-		p.finish(false)
-	})
 	if p.Verify != nil {
 		p.Share = p.Verify(rc)
 		if p.Share == nil {
@@ -67,15 +66,14 @@ func (p *PQOTS) Start() error {
 	}
 	K, Cs, err := elGamalEncrypt(cothority.Suite, p.Xc, p.Share)
 	if err != nil {
-		p.Failures++
-		log.Lvl1(p.ServerIdentity(), "cannot reencrypt:", err.Error())
-	} else {
-		p.replies = append(p.replies, ReencryptReply{
-			Index: p.Share.I,
-			Egp:   &EGP{K: K, Cs: Cs},
-		})
+		p.finish(false)
+		return xerrors.Errorf("cannot reencrypt:", err.Error())
 	}
-	errs := p.Broadcast(rc)
+	p.replies = append(p.replies, ReencryptReply{
+		Index: p.Share.I,
+		Egp:   &EGP{K: K, Cs: Cs},
+	})
+	errs := p.SendToChildrenInParallel(rc)
 	if len(errs) > (len(p.Roster().List)-1)/3 {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
 		return xerrors.New("too many nodes failed in broadcast")
@@ -123,9 +121,7 @@ func (p *PQOTS) reencryptReply(rr structReencryptReply) error {
 		}
 		return nil
 	}
-
 	p.replies = append(p.replies, rr.ReencryptReply)
-	//if len(p.replies) >= (p.Threshold - 1) {
 	if len(p.replies) >= (p.Threshold) {
 		p.Reencryptions = make([]*EGP, len(p.List()))
 		for _, r := range p.replies {

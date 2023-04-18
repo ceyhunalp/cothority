@@ -68,6 +68,7 @@ func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
 			err)
 	}
 	otsProto := pi.(*protocol.OTS)
+	otsProto.Threshold = req.Threshold
 	otsProto.Xc = read.Xc
 	verificationData := &vData{
 		Read:  &req.Read,

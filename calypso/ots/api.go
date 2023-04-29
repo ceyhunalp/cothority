@@ -100,9 +100,9 @@ func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	return reply, nil
 }
 
-func (c *Client) DecryptKey(dkr *DecryptKeyRequest) (reply *DecryptKeyReply,
+func (c *Client) DecryptKey(dkr *OTSDKRequest) (reply *OTSDKReply,
 	err error) {
-	reply = &DecryptKeyReply{}
+	reply = &OTSDKReply{}
 	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dkr, reply)
 	return reply, err
 }

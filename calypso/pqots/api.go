@@ -139,9 +139,9 @@ func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	return reply, nil
 }
 
-func (c *Client) DecryptKey(dkr *DecryptKeyRequest) (reply *DecryptKeyReply,
+func (c *Client) DecryptKey(dkr *PQOTSDKRequest) (reply *PQOTSDKReply,
 	err error) {
-	reply = &DecryptKeyReply{}
+	reply = &PQOTSDKReply{}
 	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dkr, reply)
 	return reply, err
 }

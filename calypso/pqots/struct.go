@@ -12,7 +12,7 @@ import (
 
 func init() {
 	network.RegisterMessages(VerifyWriteRequest{}, VerifyWriteReply{},
-		DecryptKeyRequest{}, DecryptKeyReply{})
+		PQOTSDKRequest{}, PQOTSDKReply{})
 }
 
 type suite interface {

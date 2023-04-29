@@ -51,7 +51,7 @@ type vData struct {
 	Write *byzcoin.Proof
 }
 
-func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
+func (s *Service) DecryptKey(req *OTSDKRequest) (*OTSDKReply, error) {
 	log.Lvl2(s.ServerIdentity(), "Re-encrypt the key to the public key of the reader")
 
 	var read Read
@@ -88,7 +88,7 @@ func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
 		return nil, xerrors.New("reencryption got refused")
 	}
 	log.Lvl3("Reencryption protocol is done.")
-	return &DecryptKeyReply{Reencryptions: otsProto.Reencryptions}, nil
+	return &OTSDKReply{Reencryptions: otsProto.Reencryptions}, nil
 }
 
 func (s *Service) verifyProof(proof *byzcoin.Proof) error {
@@ -137,16 +137,14 @@ func (s *Service) NewProtocol(tn *onet.TreeNodeInstance, conf *onet.GenericConfi
 	return nil, nil
 }
 
-func (s *Service) verifyReencryption(rc *protocol.Reencrypt,
+func (s *Service) verifyReencryption(rc *protocol.OTSReencrypt,
 	idx int) (*pvss.PubVerShare, kyber.Point, darc.ID) {
-	sh, pr, pid, err := func() (*pvss.PubVerShare, kyber.Point, darc.ID,
-		error) {
+	sh, pr, pid, err := func() (*pvss.PubVerShare, kyber.Point, darc.ID, error) {
 		var verificationData vData
 		err := protobuf.DecodeWithConstructors(*rc.VerificationData,
 			&verificationData, network.DefaultConstructors(cothority.Suite))
 		if err != nil {
-			return nil, nil, nil, xerrors.Errorf(
-				"decoding verification data: %v", err)
+			return nil, nil, nil, xerrors.Errorf("decoding verification data: %v", err)
 		}
 		if err = s.verifyProof(verificationData.Read); err != nil {
 			return nil, nil, nil, xerrors.Errorf(

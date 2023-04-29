@@ -144,15 +144,15 @@ func TestAll(t *testing.T) {
 	require.True(t, prRe2.InclusionProof.Match(re2.InstanceID.Slice()))
 
 	// These requests should fail
-	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Threshold: thr,
+	_, err = cl.DecryptKey(&OTSDKRequest{Roster: roster, Threshold: thr,
 		Read: *prRe2, Write: *prWr1})
 	require.NotNil(t, err)
-	_, err = cl.DecryptKey(&DecryptKeyRequest{Roster: roster, Threshold: thr,
+	_, err = cl.DecryptKey(&OTSDKRequest{Roster: roster, Threshold: thr,
 		Read: *prRe1, Write: *prWr2})
 	require.NotNil(t, err)
 
 	// Valid decrypt request for reader1
-	dkr1, err := cl.DecryptKey(&DecryptKeyRequest{
+	dkr1, err := cl.DecryptKey(&OTSDKRequest{
 		Roster:    roster,
 		Threshold: thr,
 		Read:      *prRe1,
@@ -183,7 +183,7 @@ func TestAll(t *testing.T) {
 	require.True(t, bytes.Equal(ptxt1, mesg1))
 
 	// Valid decrypt request for reader2
-	dkr2, err := cl.DecryptKey(&DecryptKeyRequest{
+	dkr2, err := cl.DecryptKey(&OTSDKRequest{
 		Roster:    roster,
 		Threshold: thr,
 		Read:      *prRe2,

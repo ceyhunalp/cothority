@@ -34,29 +34,25 @@ type OTS struct {
 
 	Reencrypted   chan bool
 	Reencryptions []*EGP
-	replies       []ReencryptReply
+	replies       []OTSReencryptReply
 	timeout       *time.Timer
 	doneOnce      sync.Once
 }
 
 func NewOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
-	ots := &OTS{
+	o := &OTS{
 		TreeNodeInstance: n,
 		Reencrypted:      make(chan bool, 1),
 	}
-	err := ots.RegisterHandlers(ots.reencrypt, ots.reencryptReply)
+	err := o.RegisterHandlers(o.reencrypt, o.reencryptReply)
 	if err != nil {
 		return nil, xerrors.Errorf("registering handlers: %v", err)
 	}
-	return ots, nil
+	return o, nil
 }
 
 func (o *OTS) Start() error {
-	o.timeout = time.AfterFunc(1*time.Minute, func() {
-		log.Lvl1("OTS protocol timeout")
-		o.finish(false)
-	})
-	rc := &Reencrypt{
+	rc := &OTSReencrypt{
 		Xc: o.Xc,
 	}
 	if len(o.VerificationData) > 0 {
@@ -81,28 +77,32 @@ func (o *OTS) Start() error {
 		o.finish(false)
 		return xerrors.Errorf("cannot reencrypt:", err.Error())
 	}
-	o.replies = append(o.replies, ReencryptReply{
+	o.replies = append(o.replies, OTSReencryptReply{
 		Index: sh.S.I,
 		Egp:   &EGP{K: K, Cs: Cs},
 	})
+	o.timeout = time.AfterFunc(1*time.Minute, func() {
+		log.Lvl1("OTS protocol timeout")
+		o.finish(false)
+	})
 	errs := o.SendToChildrenInParallel(rc)
-	if len(errs) > (len(o.Roster().List)-1)/3 {
+	if len(errs) > len(o.Roster().List)-o.Threshold {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
 		return xerrors.New("too many nodes failed in broadcast")
 	}
 	return nil
 }
 
-func (o *OTS) reencrypt(r structReencrypt) error {
+func (o *OTS) reencrypt(r structOTSReencrypt) error {
 	log.Lvl3(o.Name() + ": starting reencrypt")
 	defer o.Done()
 
 	if o.Verify != nil {
-		o.Share, o.Proof, o.PolicyID = o.Verify(&r.Reencrypt, o.Index())
+		o.Share, o.Proof, o.PolicyID = o.Verify(&r.OTSReencrypt, o.Index())
 		if o.Share == nil || o.Proof == nil || o.PolicyID == nil {
 			log.Lvl2(o.ServerIdentity(), "refused to reencrypt")
-			return cothority.ErrorOrNil(o.SendToParent(&ReencryptReply{}),
-				"sending ReencryptReply to parent")
+			return cothority.ErrorOrNil(o.SendToParent(&OTSReencryptReply{}),
+				"sending OTSReencryptReply to parent")
 		}
 	}
 	h := createPointH(o.PolicyID)
@@ -110,29 +110,29 @@ func (o *OTS) reencrypt(r structReencrypt) error {
 		o.Private(), o.Share)
 	if err != nil {
 		log.Lvl2(o.ServerIdentity(), "cannot decrypt share")
-		return cothority.ErrorOrNil(o.SendToParent(&ReencryptReply{}),
-			"sending ReencryptReply to parent")
+		return cothority.ErrorOrNil(o.SendToParent(&OTSReencryptReply{}),
+			"sending OTSReencryptReply to parent")
 	}
 	K, Cs, err := elGamalEncrypt(cothority.Suite, r.Xc, sh)
 	if err != nil {
 		log.Lvl2(o.ServerIdentity(), "cannot reencrypt")
-		return cothority.ErrorOrNil(o.SendToParent(&ReencryptReply{}),
-			"sending ReencryptReply to parent")
+		return cothority.ErrorOrNil(o.SendToParent(&OTSReencryptReply{}),
+			"sending OTSReencryptReply to parent")
 	}
 	log.Lvl1(o.Name() + ": sending reply to parent")
 	return cothority.ErrorOrNil(
-		o.SendToParent(&ReencryptReply{
+		o.SendToParent(&OTSReencryptReply{
 			Index: sh.S.I,
 			Egp: &EGP{
 				K:  K,
 				Cs: Cs,
 			},
-		}), "sending ReencryptReply to parent",
+		}), "sending OTSReencryptReply to parent",
 	)
 }
 
-func (o *OTS) reencryptReply(rr structReencryptReply) error {
-	if rr.ReencryptReply.Egp == nil {
+func (o *OTS) reencryptReply(rr structOTSReencryptReply) error {
+	if rr.OTSReencryptReply.Egp == nil {
 		log.Lvl2("Node", rr.ServerIdentity, "refused to reply")
 		o.Failures++
 		if o.Failures > len(o.Roster().List)-o.Threshold {
@@ -141,7 +141,7 @@ func (o *OTS) reencryptReply(rr structReencryptReply) error {
 		}
 		return nil
 	}
-	o.replies = append(o.replies, rr.ReencryptReply)
+	o.replies = append(o.replies, rr.OTSReencryptReply)
 	if len(o.replies) >= (o.Threshold) {
 		o.Reencryptions = make([]*EGP, len(o.List()))
 		for _, r := range o.replies {

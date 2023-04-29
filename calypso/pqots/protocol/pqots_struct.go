@@ -10,31 +10,29 @@ import (
 const NamePQOTS = "PQOTS"
 
 func init() {
-	network.RegisterMessages(&Reencrypt{}, &ReencryptReply{})
+	network.RegisterMessages(&PQOTSReencrypt{}, &PQOTSReencryptReply{})
 }
 
-type VerifyRequest func(rc *Reencrypt) *share.PriShare
+type VerifyRequest func(rc *PQOTSReencrypt) *share.PriShare
 
-//type GetShare func([]byte) (*share.PriShare, error)
-
-type Reencrypt struct {
+type PQOTSReencrypt struct {
 	Xc               kyber.Point
 	VerificationData *[]byte
 }
 
-type structReencrypt struct {
+type structPQOTSReencrypt struct {
 	*onet.TreeNode
-	Reencrypt
+	PQOTSReencrypt
 }
 
-type ReencryptReply struct {
+type PQOTSReencryptReply struct {
 	Index int
 	Egp   *EGP
 }
 
-type structReencryptReply struct {
+type structPQOTSReencryptReply struct {
 	*onet.TreeNode
-	ReencryptReply
+	PQOTSReencryptReply
 }
 
 type EGP struct {

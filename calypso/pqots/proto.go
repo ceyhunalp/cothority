@@ -38,7 +38,7 @@ type Read struct {
 	Xc    kyber.Point
 }
 
-type DecryptKeyRequest struct {
+type PQOTSDKRequest struct {
 	Roster    *onet.Roster
 	Threshold int
 	// Read is the proof that he has been accepted to read the secret.
@@ -47,6 +47,6 @@ type DecryptKeyRequest struct {
 	Write byzcoin.Proof
 }
 
-type DecryptKeyReply struct {
+type PQOTSDKReply struct {
 	Reencryptions []*protocol.EGP
 }

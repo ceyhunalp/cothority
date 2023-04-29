@@ -11,30 +11,29 @@ import (
 const NameOTS = "OTS"
 
 func init() {
-	network.RegisterMessages(&Reencrypt{}, &ReencryptReply{})
+	network.RegisterMessages(&OTSReencrypt{}, &OTSReencryptReply{})
 }
 
-type VerifyRequest func(rc *Reencrypt, idx int) (*pvss.PubVerShare,
-	kyber.Point, darc.ID)
+type VerifyRequest func(rc *OTSReencrypt, idx int) (*pvss.PubVerShare, kyber.Point, darc.ID)
 
-type Reencrypt struct {
+type OTSReencrypt struct {
 	Xc               kyber.Point
 	VerificationData *[]byte
 }
 
-type structReencrypt struct {
+type structOTSReencrypt struct {
 	*onet.TreeNode
-	Reencrypt
+	OTSReencrypt
 }
 
-type ReencryptReply struct {
+type OTSReencryptReply struct {
 	Index int
 	Egp   *EGP
 }
 
-type structReencryptReply struct {
+type structOTSReencryptReply struct {
 	*onet.TreeNode
-	ReencryptReply
+	OTSReencryptReply
 }
 
 type EGP struct {

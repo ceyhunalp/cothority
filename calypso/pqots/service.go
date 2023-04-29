@@ -89,7 +89,7 @@ func verifyCommitment(req *VerifyWriteRequest) error {
 	return nil
 }
 
-func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
+func (s *Service) DecryptKey(req *PQOTSDKRequest) (*PQOTSDKReply, error) {
 	log.Lvl2(s.ServerIdentity(), "Re-encrypt the key to the public key of the reader")
 
 	var read Read
@@ -126,7 +126,7 @@ func (s *Service) DecryptKey(req *DecryptKeyRequest) (*DecryptKeyReply, error) {
 		return nil, xerrors.New("reencryption got refused")
 	}
 	log.Lvl3("Reencryption protocol is done.")
-	return &DecryptKeyReply{Reencryptions: pqotsProto.Reencryptions}, nil
+	return &PQOTSDKReply{Reencryptions: pqotsProto.Reencryptions}, nil
 }
 
 func (s *Service) verifyProof(proof *byzcoin.Proof) error {
@@ -175,7 +175,7 @@ func (s *Service) NewProtocol(tn *onet.TreeNodeInstance,
 	return nil, nil
 }
 
-func (s *Service) verifyReencryption(rc *protocol.Reencrypt) *share.PriShare {
+func (s *Service) verifyReencryption(rc *protocol.PQOTSReencrypt) *share.PriShare {
 	sh, err := func() (*share.PriShare, error) {
 		var verificationData vData
 		err := protobuf.DecodeWithConstructors(*rc.VerificationData,

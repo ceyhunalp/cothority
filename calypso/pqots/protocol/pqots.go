@@ -29,7 +29,7 @@ type PQOTS struct {
 
 	Reencrypted   chan bool
 	Reencryptions []*EGP
-	replies       []ReencryptReply
+	replies       []PQOTSReencryptReply
 	timeout       *time.Timer
 	doneOnce      sync.Once
 }
@@ -47,11 +47,7 @@ func NewPQOTS(n *onet.TreeNodeInstance) (onet.ProtocolInstance, error) {
 }
 
 func (p *PQOTS) Start() error {
-	p.timeout = time.AfterFunc(1*time.Minute, func() {
-		log.Lvl1("PQOTS protocol timeout")
-		p.finish(false)
-	})
-	rc := &Reencrypt{
+	rc := &PQOTSReencrypt{
 		Xc: p.Xc,
 	}
 	if len(p.VerificationData) > 0 {
@@ -69,50 +65,54 @@ func (p *PQOTS) Start() error {
 		p.finish(false)
 		return xerrors.Errorf("cannot reencrypt:", err.Error())
 	}
-	p.replies = append(p.replies, ReencryptReply{
+	p.replies = append(p.replies, PQOTSReencryptReply{
 		Index: p.Share.I,
 		Egp:   &EGP{K: K, Cs: Cs},
 	})
+	p.timeout = time.AfterFunc(1*time.Minute, func() {
+		log.Lvl1("PQOTS protocol timeout")
+		p.finish(false)
+	})
 	errs := p.SendToChildrenInParallel(rc)
-	if len(errs) > (len(p.Roster().List)-1)/3 {
+	if len(errs) > len(p.Roster().List)-p.Threshold {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
 		return xerrors.New("too many nodes failed in broadcast")
 	}
 	return nil
 }
 
-func (p *PQOTS) reencrypt(r structReencrypt) error {
+func (p *PQOTS) reencrypt(r structPQOTSReencrypt) error {
 	log.Lvl3(p.Name() + ": starting reencrypt")
 	defer p.Done()
 
 	if p.Verify != nil {
-		p.Share = p.Verify(&r.Reencrypt)
+		p.Share = p.Verify(&r.PQOTSReencrypt)
 		if p.Share == nil {
 			log.Lvl2(p.ServerIdentity(), "refused to reencrypt")
-			return cothority.ErrorOrNil(p.SendToParent(&ReencryptReply{}),
-				"sending ReencryptReply to parent")
+			return cothority.ErrorOrNil(p.SendToParent(&PQOTSReencryptReply{}),
+				"sending PQOTSReencryptReply to parent")
 		}
 	}
 	K, Cs, err := elGamalEncrypt(cothority.Suite, r.Xc, p.Share)
 	if err != nil {
 		log.Lvl2(p.ServerIdentity(), "cannot reencrypt")
-		return cothority.ErrorOrNil(p.SendToParent(&ReencryptReply{}),
-			"sending ReencryptReply to parent")
+		return cothority.ErrorOrNil(p.SendToParent(&PQOTSReencryptReply{}),
+			"sending PQOTSReencryptReply to parent")
 	}
 	log.Lvl1(p.Name() + ": sending reply to parent")
 	return cothority.ErrorOrNil(
-		p.SendToParent(&ReencryptReply{
+		p.SendToParent(&PQOTSReencryptReply{
 			Index: p.Share.I,
 			Egp: &EGP{
 				K:  K,
 				Cs: Cs,
 			},
-		}), "sending ReencryptReply to parent",
+		}), "sending PQOTSReencryptReply to parent",
 	)
 }
 
-func (p *PQOTS) reencryptReply(rr structReencryptReply) error {
-	if rr.ReencryptReply.Egp == nil {
+func (p *PQOTS) reencryptReply(rr structPQOTSReencryptReply) error {
+	if rr.PQOTSReencryptReply.Egp == nil {
 		log.Lvl2("Node", rr.ServerIdentity, "refused to reply")
 		p.Failures++
 		if p.Failures > len(p.Roster().List)-p.Threshold {
@@ -121,7 +121,7 @@ func (p *PQOTS) reencryptReply(rr structReencryptReply) error {
 		}
 		return nil
 	}
-	p.replies = append(p.replies, rr.ReencryptReply)
+	p.replies = append(p.replies, rr.PQOTSReencryptReply)
 	if len(p.replies) >= (p.Threshold) {
 		p.Reencryptions = make([]*EGP, len(p.List()))
 		for _, r := range p.replies {

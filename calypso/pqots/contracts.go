@@ -42,6 +42,7 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 	case ContractPQOTSWriteID:
 		buf := inst.Spawn.Args.Search("writetxn")
 		if buf == nil || len(buf) == 0 {
+			log.Error(err)
 			err = xerrors.New("need a write txn in 'writetxn' argument")
 			return
 		}
@@ -51,11 +52,13 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 		err = protobuf.DecodeWithConstructors(buf, &c.WriteTxn,
 			network.DefaultConstructors(cothority.Suite))
 		if err != nil {
+			log.Error(err)
 			err = xerrors.New("couldn't unmarshal write txn: " + err.Error())
 			return
 		}
 		if err = c.WriteTxn.CheckSignatures(cothority.Suite); err != nil {
 			//if err = wTxn.CheckSignatures(cothority.Suite); err != nil {
+			log.Error(err)
 			err = xerrors.Errorf("Verifying write failed: %v", err)
 			return
 		}
@@ -64,6 +67,7 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 		}
 		instID, err := inst.DeriveIDArg("", "preID")
 		if err != nil {
+			log.Error(err)
 			return nil, nil, xerrors.Errorf(
 				"couldn't get ID for instance: %v", err)
 		}
@@ -71,6 +75,7 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 		//wb, err := protobuf.Encode(&wTxn.Write)
 		wb, err := protobuf.Encode(&c.Write)
 		if err != nil {
+			log.Error(err)
 			return nil, nil, xerrors.Errorf("couldn't encode write: %v", err)
 		}
 		sc = append(sc, byzcoin.NewStateChange(byzcoin.Create, instID,
@@ -79,17 +84,21 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 		var rd Read
 		r := inst.Spawn.Args.Search("read")
 		if r == nil || len(r) == 0 {
+			log.Errorf("missing read argument")
 			return nil, nil, xerrors.New("need a read argument")
 		}
 		err = protobuf.DecodeWithConstructors(r, &rd, network.DefaultConstructors(cothority.Suite))
 		if err != nil {
+			log.Error(err)
 			return nil, nil, xerrors.Errorf("passed read argument is invalid: %v", err)
 		}
 		if !rd.Write.Equal(inst.InstanceID) {
+			log.Errorf("the read request doesn't reference this write-instance")
 			return nil, nil, xerrors.New("the read request doesn't reference this write-instance")
 		}
 		instID, err := inst.DeriveIDArg("", "preID")
 		if err != nil {
+			log.Error(err)
 			return nil, nil, xerrors.Errorf(
 				"couldn't get ID for instance: %v", err)
 		}

@@ -25,3 +25,9 @@ external/java/.project
 
 bypros/postgres
 bypros/storage/sqlstore/postgres
+
+**/deploy/
+**/test_data/save/v0/**
+**/test_data/*csv
+**/microbenchmarks/microbenchmarks
+**/test_data/old/*

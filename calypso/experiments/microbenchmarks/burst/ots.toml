@@ -1,0 +1,21 @@
+Simulation = "BurstSim"
+Servers = 1
+Hosts = 16
+Bf = 15
+Rounds = 5
+RunWait = "60000s"
+Delay = 100
+Bandwidth = 100
+Suite = "Ed25519"
+BlockTime = 10
+ProtoName = "OTS"
+MaxTxns = 128
+
+NumTxns
+4
+8
+16
+32
+64
+128
+#256

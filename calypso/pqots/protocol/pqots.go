@@ -73,7 +73,8 @@ func (p *PQOTS) Start() error {
 		log.Lvl1("PQOTS protocol timeout")
 		p.finish(false)
 	})
-	errs := p.SendToChildrenInParallel(rc)
+	//errs := p.SendToChildrenInParallel(rc)
+	errs := p.Broadcast(rc)
 	if len(errs) > len(p.Roster().List)-p.Threshold {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
 		return xerrors.New("too many nodes failed in broadcast")

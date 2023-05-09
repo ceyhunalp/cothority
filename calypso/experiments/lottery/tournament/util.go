@@ -2,7 +2,6 @@ package tournament
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"go.dedis.ch/cothority/v3/byzcoin"
 	"go.dedis.ch/cothority/v3/darc"
 	"go.dedis.ch/cothority/v3/darc/expression"
@@ -10,22 +9,50 @@ import (
 	"go.dedis.ch/protobuf"
 )
 
-func CreateMultipleDarcs(count int) ([]darc.Signer, []uint64, []*darc.Darc) {
+//func CreateMultipleDarcs(count int) ([]darc.Signer, []uint64, []*darc.Darc) {
+//	writers := make([]darc.Signer, count)
+//	wCtrs := make([]uint64, count)
+//	writeDarcs := make([]*darc.Darc, count)
+//	for i := 0; i < count; i++ {
+//		writers[i] = darc.NewSignerEd25519(nil, nil)
+//		wCtrs[i] = 1
+//	}
+//	for i := 0; i < count; i++ {
+//		writeDarcs[i] = darc.NewDarc(darc.InitRules([]darc.Identity{writers[i].
+//			Identity()}, []darc.Identity{writers[i].Identity()}),
+//			[]byte(fmt.Sprintf("writer_%d", i)))
+//		writeDarcs[i].Rules.AddRule("spawn:"+ContractTournamentID,
+//			expression.InitOrExpr(writers[i].Identity().String()))
+//	}
+//	return writers, wCtrs, writeDarcs
+//}
+
+func CreateMultiClientDarc(count int) ([]darc.Signer, []uint64, *darc.Darc) {
 	writers := make([]darc.Signer, count)
 	wCtrs := make([]uint64, count)
-	writeDarcs := make([]*darc.Darc, count)
+
+	ids := make([]darc.Identity, count)
+	wrIdStrs := make([]string, count)
+
 	for i := 0; i < count; i++ {
 		writers[i] = darc.NewSignerEd25519(nil, nil)
 		wCtrs[i] = 1
+		ids[i] = writers[i].Identity()
+		wrIdStrs[i] = writers[i].Identity().String()
 	}
-	for i := 0; i < count; i++ {
-		writeDarcs[i] = darc.NewDarc(darc.InitRules([]darc.Identity{writers[i].
-			Identity()}, []darc.Identity{writers[i].Identity()}),
-			[]byte(fmt.Sprintf("writer_%d", i)))
-		writeDarcs[i].Rules.AddRule("spawn:"+ContractTournamentID,
-			expression.InitOrExpr(writers[i].Identity().String()))
-	}
-	return writers, wCtrs, writeDarcs
+
+	wd := darc.NewDarc(darc.InitRules(ids, ids), []byte("writers"))
+	wd.Rules.AddRule("spawn:"+ContractTournamentID,
+		expression.InitOrExpr(wrIdStrs...))
+	return writers, wCtrs, wd
+	//for i := 0; i < count; i++ {
+	//	writeDarcs[i] = darc.NewDarc(darc.InitRules([]darc.Identity{writers[i].
+	//		Identity()}, []darc.Identity{writers[i].Identity()}),
+	//		[]byte(fmt.Sprintf("writer_%d", i)))
+	//	writeDarcs[i].Rules.AddRule("spawn:"+ContractTournamentID,
+	//		expression.InitOrExpr(writers[i].Identity().String()))
+	//}
+	//return writers, wCtrs, writeDarcs
 }
 
 func CreateLotteryData() *LotteryData {

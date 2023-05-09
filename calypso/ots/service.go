@@ -64,8 +64,7 @@ func (s *Service) DecryptKey(req *OTSDKRequest) (*OTSDKReply, error) {
 	tree := req.Roster.GenerateNaryTreeWithRoot(nodes, s.ServerIdentity())
 	pi, err := s.CreateProtocol(protocol.NameOTS, tree)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to create the ots-protocol: %v",
-			err)
+		return nil, xerrors.Errorf("failed to create the ots-protocol: %v", err)
 	}
 	otsProto := pi.(*protocol.OTS)
 	otsProto.Threshold = req.Threshold
@@ -85,6 +84,7 @@ func (s *Service) DecryptKey(req *OTSDKRequest) (*OTSDKReply, error) {
 		return nil, xerrors.Errorf("failed to start ots-protocol: %v", err)
 	}
 	if !<-otsProto.Reencrypted {
+		log.Errorf("reencryption got refused")
 		return nil, xerrors.New("reencryption got refused")
 	}
 	log.Lvl3("Reencryption protocol is done.")
@@ -101,6 +101,7 @@ func (s *Service) verifyProof(proof *byzcoin.Proof) error {
 	return cothority.ErrorOrNil(proof.VerifyFromBlock(sb),
 		"verifying proof from block")
 }
+
 func (s *Service) fetchGenesisBlock(scID skipchain.SkipBlockID, roster *onet.Roster) (*skipchain.SkipBlock, error) {
 	s.genesisBlocksLock.Lock()
 	defer s.genesisBlocksLock.Unlock()
@@ -176,7 +177,7 @@ func (s *Service) verifyReencryption(rc *protocol.OTSReencrypt,
 		return write.Shares[idx], write.Proofs[idx], write.PolicyID, nil
 	}()
 	if err != nil {
-		log.Lvl2(s.ServerIdentity(), "Verifying reencryption failed:", err)
+		log.Error(s.ServerIdentity(), "Verifying reencryption failed:", err)
 	}
 	return sh, pr, pid
 }

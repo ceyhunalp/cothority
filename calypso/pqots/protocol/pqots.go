@@ -69,7 +69,7 @@ func (p *PQOTS) Start() error {
 		Index: p.Share.I,
 		Egp:   &EGP{K: K, Cs: Cs},
 	})
-	p.timeout = time.AfterFunc(1*time.Minute, func() {
+	p.timeout = time.AfterFunc(10*time.Minute, func() {
 		log.Lvl1("PQOTS protocol timeout")
 		p.finish(false)
 	})

@@ -2,6 +2,7 @@ Simulation = "ByzgenSim"
 Servers = 1
 Hosts = 16
 Bf = 15
+F = 5
 Rounds = 1
 RunWait = "60000s"
 Delay = 100

@@ -20,11 +20,12 @@ import (
 
 type SimulationService struct {
 	onet.SimulationBFTree
-	ProtoName       string
-	BlockTime       int
 	NodeCount       int
+	F               int
 	Threshold       int
 	VerifyThreshold int
+	BlockTime       int
+	ProtoName       string
 	Publics         []kyber.Point
 }
 
@@ -108,7 +109,7 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 			log.Error(err)
 			return err
 		}
-		wrPr, err := cl.WaitProof(wrReply.InstanceID, time.Duration(s.BlockTime), nil)
+		wrPr, err := cl.WaitProof(wrReply.InstanceID, time.Duration(commons.WP_INTERVAL), nil)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -121,7 +122,7 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 			log.Error(err)
 			return err
 		}
-		rPr, err := cl.WaitProof(rReply.InstanceID, time.Duration(s.BlockTime), nil)
+		rPr, err := cl.WaitProof(rReply.InstanceID, time.Duration(commons.WP_INTERVAL), nil)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -237,7 +238,7 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 			log.Error(err)
 			return err
 		}
-		wrPr, err := cl.WaitProof(wReply.InstanceID, time.Duration(s.BlockTime),
+		wrPr, err := cl.WaitProof(wReply.InstanceID, time.Duration(commons.WP_INTERVAL),
 			nil)
 		if err != nil {
 			log.Error(err)
@@ -251,7 +252,7 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 			log.Error(err)
 			return err
 		}
-		rPr, err := cl.WaitProof(rReply.InstanceID, time.Duration(s.BlockTime), nil)
+		rPr, err := cl.WaitProof(rReply.InstanceID, time.Duration(commons.WP_INTERVAL), nil)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -312,13 +313,12 @@ func (s *SimulationService) Run(config *onet.SimulationConfig) error {
 	s.Publics = config.Roster.Publics()
 	if s.ProtoName == "OTS" {
 		log.Info("OTS")
-		s.Threshold = ((s.NodeCount - 1) / 2) + 1
+		s.Threshold = s.F + 1
 		err = s.runOTS(config)
 	} else {
 		log.Info("PQOTS")
-		f := (s.NodeCount - 1) / 3
-		s.Threshold = f + 1
-		s.VerifyThreshold = 2*f + 1
+		s.Threshold = s.F + 1
+		s.VerifyThreshold = 2*s.F + 1
 		err = s.runPQOTS(config)
 	}
 	return err

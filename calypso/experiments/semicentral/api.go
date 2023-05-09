@@ -1,10 +1,15 @@
-package ots
+package semicentral
 
 import (
+	"encoding/hex"
 	"go.dedis.ch/cothority/v3"
 	"go.dedis.ch/cothority/v3/byzcoin"
+	"go.dedis.ch/cothority/v3/calypso"
 	"go.dedis.ch/cothority/v3/darc"
+	"go.dedis.ch/kyber/v3"
+	"go.dedis.ch/kyber/v3/sign/schnorr"
 	"go.dedis.ch/onet/v3"
+	"go.dedis.ch/onet/v3/log"
 	"go.dedis.ch/protobuf"
 	"golang.org/x/xerrors"
 	"time"
@@ -32,31 +37,46 @@ type ReadReply struct {
 	byzcoin.InstanceID
 }
 
-func (c *Client) AddWrite(write *Write, signer darc.Signer, signerCtr uint64,
-	darc darc.Darc, wait int) (reply *WriteReply, err error) {
+func (c *Client) StoreData(data []byte, dataHash []byte) (*StoreReply, error) {
+	sr := &StoreRequest{
+		Data:     data,
+		DataHash: dataHash,
+	}
+	reply := &StoreReply{}
+	err := c.c.SendProtobuf(c.bcClient.Roster.List[0], sr, reply)
+	if err != nil {
+		log.Errorf("Storing encrypted data failed: %v", err)
+		return nil, err
+	}
+	return reply, nil
+}
+
+func (c *Client) AddWrite(write *SCWrite, signer darc.Signer,
+	signerCtr uint64, darc darc.Darc, wait int) (reply *WriteReply, err error) {
 	reply = &WriteReply{}
 	wb, err := protobuf.Encode(write)
 	if err != nil {
-		return nil, xerrors.Errorf("encoding write request: %v", err)
+		log.Error(err)
+		return nil, err
 	}
 	ctx := byzcoin.NewClientTransaction(byzcoin.CurrentVersion,
 		byzcoin.Instruction{
 			InstanceID: byzcoin.NewInstanceID(darc.GetBaseID()),
 			Spawn: &byzcoin.Spawn{
-				ContractID: ContractOTSWriteID,
+				ContractID: ContractSCWriteID,
 				Args: byzcoin.Arguments{{
 					Name: "write", Value: wb}},
 			},
 			SignerCounter: []uint64{signerCtr},
 		},
 	)
+
 	//Sign the transaction
 	err = ctx.FillSignersAndSignWith(signer)
 	if err != nil {
 		return nil, xerrors.Errorf("signing txn: %v", err)
 	}
 	reply.InstanceID = ctx.Instructions[0].DeriveID("")
-	//Delegate the work to the byzcoin client
 	reply.AddTxResponse, err = c.bcClient.AddTransactionAndWait(ctx, wait)
 	if err != nil {
 		return nil, xerrors.Errorf("adding txn: %v", err)
@@ -66,23 +86,22 @@ func (c *Client) AddWrite(write *Write, signer darc.Signer, signerCtr uint64,
 
 func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	signerCtr uint64, wait int) (reply *ReadReply, err error) {
-	var readBuf []byte
-	read := &Read{
+	reply = &ReadReply{}
+	read := &calypso.Read{
 		Write: byzcoin.NewInstanceID(proof.InclusionProof.Key()),
 		Xc:    signer.Ed25519.Point,
 	}
-	reply = &ReadReply{}
-	readBuf, err = protobuf.Encode(read)
+	rb, err := protobuf.Encode(read)
 	if err != nil {
-		return nil, xerrors.Errorf("encoding Read message: %v", err)
+		log.Error(err)
+		return nil, err
 	}
-
 	ctx := byzcoin.NewClientTransaction(byzcoin.CurrentVersion,
 		byzcoin.Instruction{
 			InstanceID: byzcoin.NewInstanceID(proof.InclusionProof.Key()),
 			Spawn: &byzcoin.Spawn{
-				ContractID: ContractOTSReadID,
-				Args:       byzcoin.Arguments{{Name: "read", Value: readBuf}},
+				ContractID: ContractSCReadID,
+				Args:       byzcoin.Arguments{{Name: "read", Value: rb}},
 			},
 			SignerCounter: []uint64{signerCtr},
 		},
@@ -91,7 +110,6 @@ func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	if err != nil {
 		return nil, xerrors.Errorf("signing txn: %v", err)
 	}
-
 	reply.InstanceID = ctx.Instructions[0].DeriveID("")
 	reply.AddTxResponse, err = c.bcClient.AddTransactionAndWait(ctx, wait)
 	if err != nil {
@@ -100,10 +118,24 @@ func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	return reply, nil
 }
 
-func (c *Client) DecryptKey(dkr *OTSDKRequest) (reply *OTSDKReply,
-	err error) {
-	reply = &OTSDKReply{}
-	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dkr, reply)
+func (c *Client) Decrypt(dr *DecryptRequest, sk kyber.Scalar) (*DecryptReply, error) {
+	keyBytes, err := hex.DecodeString(dr.Key)
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	sig, err := schnorr.Sign(cothority.Suite, sk, keyBytes)
+	if err != nil {
+		log.Errorf("Decrypt failed: %v", err)
+		return nil, err
+	}
+	dr.Sig = sig
+	reply := &DecryptReply{}
+	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dr, reply)
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
 	return reply, err
 }
 
@@ -141,13 +173,4 @@ func (c *Client) SpawnDarc(signer darc.Signer, signerCtr uint64,
 func (c *Client) WaitProof(id byzcoin.InstanceID, interval time.Duration,
 	value []byte) (*byzcoin.Proof, error) {
 	return c.bcClient.WaitProof(id, interval, value)
-}
-
-func (c *Client) Close() error {
-	err := c.bcClient.Close()
-	if err != nil {
-		return err
-	}
-	err = c.c.Close()
-	return err
 }

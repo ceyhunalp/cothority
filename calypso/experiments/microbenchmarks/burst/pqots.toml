@@ -2,6 +2,7 @@ Simulation = "BurstSim"
 Servers = 1
 Hosts = 16
 Bf = 15
+F = 5
 Rounds = 5
 RunWait = "60000s"
 Delay = 100
@@ -9,7 +10,7 @@ Bandwidth = 100
 Suite = "Ed25519"
 BlockTime = 10
 ProtoName = "PQOTS"
-MaxTxns = 128
+MaxTxns = 256
 
 NumTxns
 4
@@ -18,4 +19,4 @@ NumTxns
 32
 64
 128
-#256
+256

@@ -81,7 +81,7 @@ func (o *OTS) Start() error {
 		Index: sh.S.I,
 		Egp:   &EGP{K: K, Cs: Cs},
 	})
-	o.timeout = time.AfterFunc(1*time.Minute, func() {
+	o.timeout = time.AfterFunc(10*time.Minute, func() {
 		log.Lvl1("OTS protocol timeout")
 		o.finish(false)
 	})

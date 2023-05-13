@@ -31,3 +31,12 @@ bypros/storage/sqlstore/postgres
 **/test_data/*csv
 **/microbenchmarks/microbenchmarks
 **/test_data/old/*
+
+**/lottery/lottery
+**/burst/burst
+**/run.sh
+
+**/save/old/
+**/save/backup/
+**/backup/
+**/save/partials/

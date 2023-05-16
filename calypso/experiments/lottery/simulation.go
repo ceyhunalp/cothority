@@ -34,6 +34,7 @@ type SimulationService struct {
 	VerifyThreshold int
 	BlockTime       int
 	ProtoName       string
+	IsBatch         bool
 	NumTxns         int
 	Publics         []kyber.Point
 }
@@ -170,53 +171,100 @@ func (s *SimulationService) runOTSLottery(config *onet.SimulationConfig) error {
 		}
 		rm.Record()
 
-		_, err = baseCl.DecryptKey(&ots.OTSDKRequest{
-			Roster:    config.Roster,
-			Threshold: s.Threshold,
-			Read:      *rProofs[0],
-			Write:     *wrProofs[0],
-		})
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		d := monitor.NewTimeMeasure("dec")
-		for idx := 0; idx < s.NumTxns; idx++ {
-			dkr, err := baseCl.DecryptKey(&ots.OTSDKRequest{
+		if s.IsBatch {
+			_, err := baseCl.BatchDecryptKey(&ots.OTSBatchDKRequest{
 				Roster:    config.Roster,
 				Threshold: s.Threshold,
-				Read:      *rProofs[idx],
-				Write:     *wrProofs[idx],
+				Read:      rProofs,
+				Write:     wrProofs,
 			})
 			if err != nil {
 				log.Error(err)
 			}
-			var keys []kyber.Point
-			var encShares []*pvss.PubVerShare
-			g := cothority.Suite.Point().Base()
-			decShares := ots.ElGamalDecrypt(cothority.Suite, readers[idx].Ed25519.Secret,
-				dkr.Reencryptions)
-			for _, ds := range decShares {
-				keys = append(keys, s.Publics[ds.S.I])
-				encShares = append(encShares, shares[idx][ds.S.I])
-			}
-			recSecret, err := pvss.RecoverSecret(cothority.Suite, g, keys, encShares,
-				decShares, s.Threshold, s.NodeCount)
+			d := monitor.NewTimeMeasure("dec")
+			dkr, err := baseCl.BatchDecryptKey(&ots.OTSBatchDKRequest{
+				Roster:    config.Roster,
+				Threshold: s.Threshold,
+				Read:      rProofs,
+				Write:     wrProofs,
+			})
 			if err != nil {
 				log.Error(err)
 			}
-			decTickets[idx], err = ots.Decrypt(recSecret, encTickets[idx])
+			for idx := 0; idx < s.NumTxns; idx++ {
+				var keys []kyber.Point
+				var encShares []*pvss.PubVerShare
+				g := cothority.Suite.Point().Base()
+				decShares := ots.ElGamalDecrypt(cothority.Suite, readers[idx].Ed25519.Secret,
+					dkr.Reencryptions[idx].Pairs)
+				for _, ds := range decShares {
+					keys = append(keys, s.Publics[ds.S.I])
+					encShares = append(encShares, shares[idx][ds.S.I])
+				}
+				recSecret, err := pvss.RecoverSecret(cothority.Suite, g, keys, encShares,
+					decShares, s.Threshold, s.NodeCount)
+				if err != nil {
+					log.Error(err)
+				}
+				decTickets[idx], err = ots.Decrypt(recSecret, encTickets[idx])
+				if err != nil {
+					log.Error(err)
+				}
+			}
+			result := make([]byte, 32)
+			for j := 0; j < s.NumTxns; j++ {
+				commons.SafeXORBytes(result, result, decTickets[i])
+			}
+			_ = int(result[31]) % s.NumTxns
+			d.Record()
+		} else {
+			_, err = baseCl.DecryptKey(&ots.OTSDKRequest{
+				Roster:    config.Roster,
+				Threshold: s.Threshold,
+				Read:      *rProofs[0],
+				Write:     *wrProofs[0],
+			})
 			if err != nil {
 				log.Error(err)
+				return err
 			}
+			d := monitor.NewTimeMeasure("dec")
+			for idx := 0; idx < s.NumTxns; idx++ {
+				dkr, err := baseCl.DecryptKey(&ots.OTSDKRequest{
+					Roster:    config.Roster,
+					Threshold: s.Threshold,
+					Read:      *rProofs[idx],
+					Write:     *wrProofs[idx],
+				})
+				if err != nil {
+					log.Error(err)
+				}
+				var keys []kyber.Point
+				var encShares []*pvss.PubVerShare
+				g := cothority.Suite.Point().Base()
+				decShares := ots.ElGamalDecrypt(cothority.Suite, readers[idx].Ed25519.Secret,
+					dkr.Reencryptions)
+				for _, ds := range decShares {
+					keys = append(keys, s.Publics[ds.S.I])
+					encShares = append(encShares, shares[idx][ds.S.I])
+				}
+				recSecret, err := pvss.RecoverSecret(cothority.Suite, g, keys, encShares,
+					decShares, s.Threshold, s.NodeCount)
+				if err != nil {
+					log.Error(err)
+				}
+				decTickets[idx], err = ots.Decrypt(recSecret, encTickets[idx])
+				if err != nil {
+					log.Error(err)
+				}
+			}
+			result := make([]byte, 32)
+			for j := 0; j < s.NumTxns; j++ {
+				commons.SafeXORBytes(result, result, decTickets[i])
+			}
+			_ = int(result[31]) % s.NumTxns
+			d.Record()
 		}
-		result := make([]byte, 32)
-		for j := 0; j < s.NumTxns; j++ {
-			commons.SafeXORBytes(result, result, decTickets[i])
-		}
-		_ = int(result[31]) % s.NumTxns
-		d.Record()
 	}
 	return nil
 }
@@ -313,6 +361,8 @@ func (s *SimulationService) runPQOTSLottery(config *onet.SimulationConfig) error
 				log.Error(err)
 			}
 			rCtrs[idx]++
+		}
+		for idx := 0; idx < s.NumTxns; idx++ {
 			rProofs[idx], err = baseCl.WaitProof(rReplies[idx].InstanceID,
 				time.Duration(commons.WP_INTERVAL), nil)
 			if err != nil {
@@ -335,35 +385,67 @@ func (s *SimulationService) runPQOTSLottery(config *onet.SimulationConfig) error
 			return err
 		}
 
-		d := monitor.NewTimeMeasure("dec")
-		for idx := 0; idx < s.NumTxns; idx++ {
-			dkr, err := baseCl.DecryptKey(&pqots.PQOTSDKRequest{
+		if s.IsBatch {
+			d := monitor.NewTimeMeasure("dec")
+			dkr, err := baseCl.BatchDecryptKey(&pqots.PQOTSBatchDKRequest{
 				Roster:    config.Roster,
 				Threshold: s.Threshold,
-				Read:      *rProofs[idx],
-				Write:     *wrProofs[idx],
+				Read:      rProofs,
+				Write:     wrProofs,
 			})
 			if err != nil {
 				log.Error(err)
 			}
-			decShares := pqots.ElGamalDecrypt(cothority.Suite,
-				readers[idx].Ed25519.Secret, dkr.Reencryptions)
-			recSecret, err := share.RecoverSecret(cothority.Suite, decShares,
-				s.Threshold, s.NodeCount)
-			if err != nil {
-				log.Error(err)
+			for idx := 0; idx < s.NumTxns; idx++ {
+				decShares := pqots.ElGamalDecrypt(cothority.Suite,
+					readers[idx].Ed25519.Secret, dkr.Reencryptions[idx].Pairs)
+				recSecret, err := share.RecoverSecret(cothority.Suite, decShares,
+					s.Threshold, s.NodeCount)
+				if err != nil {
+					log.Error(err)
+				}
+				decTickets[idx], err = pqots.Decrypt(recSecret, encTickets[idx])
+				if err != nil {
+					log.Error(err)
+				}
 			}
-			decTickets[idx], err = pqots.Decrypt(recSecret, encTickets[idx])
-			if err != nil {
-				log.Error(err)
+			result := make([]byte, 32)
+			for j := 0; j < s.NumTxns; j++ {
+				commons.SafeXORBytes(result, result, decTickets[i])
 			}
+			_ = int(result[31]) % s.NumTxns
+			d.Record()
+		} else {
+			d := monitor.NewTimeMeasure("dec")
+			for idx := 0; idx < s.NumTxns; idx++ {
+				dkr, err := baseCl.DecryptKey(&pqots.PQOTSDKRequest{
+					Roster:    config.Roster,
+					Threshold: s.Threshold,
+					Read:      *rProofs[idx],
+					Write:     *wrProofs[idx],
+				})
+				if err != nil {
+					log.Error(err)
+				}
+				decShares := pqots.ElGamalDecrypt(cothority.Suite,
+					readers[idx].Ed25519.Secret, dkr.Reencryptions)
+				recSecret, err := share.RecoverSecret(cothority.Suite, decShares,
+					s.Threshold, s.NodeCount)
+				if err != nil {
+					log.Error(err)
+				}
+				decTickets[idx], err = pqots.Decrypt(recSecret, encTickets[idx])
+				if err != nil {
+					log.Error(err)
+				}
+			}
+			result := make([]byte, 32)
+			for j := 0; j < s.NumTxns; j++ {
+				commons.SafeXORBytes(result, result, decTickets[i])
+			}
+			_ = int(result[31]) % s.NumTxns
+			d.Record()
 		}
-		result := make([]byte, 32)
-		for j := 0; j < s.NumTxns; j++ {
-			commons.SafeXORBytes(result, result, decTickets[i])
-		}
-		_ = int(result[31]) % s.NumTxns
-		d.Record()
 	}
 	return nil
 }
@@ -445,6 +527,8 @@ func (s *SimulationService) runTournamentLottery(config *onet.SimulationConfig) 
 					log.Error(err)
 				}
 				wCtrs[origIdx]++
+			}
+			for idx := 0; idx < numActvTxns; idx++ {
 				openProofs[idx], err = baseCl.WaitProof(openReplies[idx].
 					InstanceID, time.Duration(commons.WP_INTERVAL), nil)
 				if err != nil {

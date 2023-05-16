@@ -10,6 +10,7 @@ Bandwidth = 100
 Suite = "Ed25519"
 BlockTime = 10
 ProtoName = "OTS"
+IsBatch = true
 
 NumTxns
 142

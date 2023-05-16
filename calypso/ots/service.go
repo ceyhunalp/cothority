@@ -91,6 +91,56 @@ func (s *Service) DecryptKey(req *OTSDKRequest) (*OTSDKReply, error) {
 	return &OTSDKReply{Reencryptions: otsProto.Reencryptions}, nil
 }
 
+func (s *Service) BatchDecryptKey(req *OTSBatchDKRequest) (*OTSBatchDKReply, error) {
+	if len(req.Read) != len(req.Write) {
+		log.Error("length mismatch")
+		return nil, xerrors.Errorf("proof sizes do not match")
+	}
+
+	batchInput := make([]*protocol.BatchInput, len(req.Read))
+	for i := 0; i < len(req.Read); i++ {
+		var read Read
+		if err := req.Read[i].VerifyAndDecode(cothority.Suite, ContractOTSReadID, &read); err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		vd := &vData{
+			Read:  req.Read[i],
+			Write: req.Write[i],
+		}
+		vdBuf, err := protobuf.Encode(vd)
+		if err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		batchInput[i] = &protocol.BatchInput{
+			Xc:               read.Xc,
+			VerificationData: vdBuf,
+		}
+	}
+
+	nodes := len(req.Roster.List)
+	tree := req.Roster.GenerateNaryTreeWithRoot(nodes, s.ServerIdentity())
+	pi, err := s.CreateProtocol(protocol.NameBatchOTS, tree)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create the ots-protocol: %v", err)
+	}
+	batchProto := pi.(*protocol.BatchOTS)
+	batchProto.Threshold = req.Threshold
+	batchProto.BatchInput = batchInput
+	batchProto.Verify = s.verifyBatchReencryption
+	err = batchProto.Start()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to start ots-protocol: %v", err)
+	}
+	if !<-batchProto.Reencrypted {
+		log.Errorf("reencryption got refused")
+		return nil, xerrors.New("reencryption got refused")
+	}
+	log.Lvl3("Reencryption protocol is done.")
+	return &OTSBatchDKReply{Reencryptions: batchProto.Reencryptions}, nil
+}
+
 func (s *Service) verifyProof(proof *byzcoin.Proof) error {
 	scID := proof.Latest.SkipChainID()
 	sb, err := s.fetchGenesisBlock(scID, proof.Latest.Roster)
@@ -128,12 +178,21 @@ func (s *Service) NewProtocol(tn *onet.TreeNodeInstance, conf *onet.GenericConfi
 	case protocol.NameOTS:
 		pi, err := protocol.NewOTS(tn)
 		if err != nil {
-			return nil, xerrors.Errorf("creating OTS protocol instance: %v",
+			return nil, xerrors.Errorf("creating BatchOTS protocol instance: %v",
 				err)
 		}
 		ots := pi.(*protocol.OTS)
 		ots.Verify = s.verifyReencryption
 		return ots, nil
+	case protocol.NameBatchOTS:
+		pi, err := protocol.NewBatchOTS(tn)
+		if err != nil {
+			return nil, xerrors.Errorf("creating BatchOTS protocol instance: %v",
+				err)
+		}
+		batchOts := pi.(*protocol.BatchOTS)
+		batchOts.Verify = s.verifyBatchReencryption
+		return batchOts, nil
 	}
 	return nil, nil
 }
@@ -182,12 +241,56 @@ func (s *Service) verifyReencryption(rc *protocol.OTSReencrypt,
 	return sh, pr, pid
 }
 
+func (s *Service) verifyBatchReencryption(in *protocol.BatchInput,
+	idx int) (*pvss.PubVerShare, kyber.Point, darc.ID) {
+	sh, pr, pid, err := func() (*pvss.PubVerShare, kyber.Point, darc.ID, error) {
+		var verificationData vData
+		err := protobuf.DecodeWithConstructors(in.VerificationData,
+			&verificationData, network.DefaultConstructors(cothority.Suite))
+		if err != nil {
+			return nil, nil, nil, xerrors.Errorf("decoding verification data: %v", err)
+		}
+		if err = s.verifyProof(verificationData.Read); err != nil {
+			return nil, nil, nil, xerrors.Errorf(
+				"read proof cannot be verified to come from scID: %v",
+				err)
+		}
+		if err = s.verifyProof(verificationData.Write); err != nil {
+			return nil, nil, nil, xerrors.Errorf(
+				"write proof cannot be verified to come from scID: %v",
+				err)
+		}
+		var read Read
+		if err := verificationData.Read.VerifyAndDecode(cothority.Suite,
+			ContractOTSReadID, &read); err != nil {
+			return nil, nil, nil, xerrors.New("didn't get a read instance: " + err.Error())
+		}
+		var write Write
+		if err := verificationData.Write.VerifyAndDecode(cothority.Suite,
+			ContractOTSWriteID, &write); err != nil {
+			return nil, nil, nil, xerrors.New("didn't get a write instance: " + err.Error())
+		}
+		if !read.Write.Equal(byzcoin.NewInstanceID(verificationData.Write.
+			InclusionProof.Key())) {
+			return nil, nil, nil, xerrors.New("read doesn't point to passed write")
+		}
+		if !read.Xc.Equal(in.Xc) {
+			return nil, nil, nil, xerrors.New("wrong reader")
+		}
+		return write.Shares[idx], write.Proofs[idx], write.PolicyID, nil
+	}()
+	if err != nil {
+		log.Error(s.ServerIdentity(), "verifying reencryption failed:", err)
+	}
+	return sh, pr, pid
+}
+
 func newService(c *onet.Context) (onet.Service, error) {
 	s := &Service{
 		ServiceProcessor: onet.NewServiceProcessor(c),
 		genesisBlocks:    make(map[string]*skipchain.SkipBlock),
 	}
-	if err := s.RegisterHandlers(s.DecryptKey); err != nil {
+	if err := s.RegisterHandlers(s.DecryptKey, s.BatchDecryptKey); err != nil {
 		return nil, xerrors.New("Couldn't register messages")
 	}
 	if err := s.tryLoad(); err != nil {

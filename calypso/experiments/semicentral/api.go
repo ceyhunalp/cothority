@@ -118,7 +118,7 @@ func (c *Client) AddRead(proof *byzcoin.Proof, signer darc.Signer,
 	return reply, nil
 }
 
-func (c *Client) Decrypt(dr *DecryptRequest, sk kyber.Scalar) (*DecryptReply, error) {
+func (c *Client) Decrypt(dr *SCDecryptRequest, sk kyber.Scalar) (*SCDecryptReply, error) {
 	keyBytes, err := hex.DecodeString(dr.Key)
 	if err != nil {
 		log.Error(err)
@@ -130,7 +130,7 @@ func (c *Client) Decrypt(dr *DecryptRequest, sk kyber.Scalar) (*DecryptReply, er
 		return nil, err
 	}
 	dr.Sig = sig
-	reply := &DecryptReply{}
+	reply := &SCDecryptReply{}
 	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dr, reply)
 	if err != nil {
 		log.Error(err)

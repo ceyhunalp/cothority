@@ -34,3 +34,16 @@ type OTSDKRequest struct {
 type OTSDKReply struct {
 	Reencryptions []*protocol.EGP
 }
+
+type OTSBatchDKRequest struct {
+	Roster    *onet.Roster
+	Threshold int
+	// Read is the proof that he has been accepted to read the secret.
+	Read []*byzcoin.Proof
+	// Write is the proof containing the write request.
+	Write []*byzcoin.Proof
+}
+
+type OTSBatchDKReply struct {
+	Reencryptions []*protocol.EGPairs
+}

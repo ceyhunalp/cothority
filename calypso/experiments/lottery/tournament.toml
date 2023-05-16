@@ -2,8 +2,7 @@ Simulation = "LotterySim"
 Servers = 1
 Hosts = 16
 Bf = 15
-#Rounds = 3
-Rounds = 1
+Rounds = 3
 RunWait = "60000s"
 Delay = 100
 Bandwidth = 100
@@ -13,17 +12,17 @@ ProtoName = "Tournament"
 
 NumTxns
 142
-#76
-#77
-#80
-#71
-#65
-#72
-#93
-#74
-#61
-#93
-#112
-#92
-#61
-#82
+76
+77
+80
+71
+65
+72
+93
+74
+61
+93
+112
+92
+61
+82

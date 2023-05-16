@@ -10,7 +10,7 @@ Bandwidth = 100
 Suite = "Ed25519"
 BlockTime = 10
 ProtoName = "OTS"
-MaxTxns = 256
+MaxTxns = 192
 
 NumTxns
 4
@@ -19,4 +19,5 @@ NumTxns
 32
 64
 128
-256
+160
+192

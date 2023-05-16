@@ -9,7 +9,8 @@ Delay = 100
 Bandwidth = 100
 Suite = "Ed25519"
 BlockTime = 10
-ProtoName = "POTS"
+ProtoName = "PQOTS"
+IsBatch = true
 
 NumTxns
 142

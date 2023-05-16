@@ -2,6 +2,7 @@ package semicentral
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"go.dedis.ch/cothority/v3"
 	"go.dedis.ch/cothority/v3/byzcoin"
@@ -12,6 +13,7 @@ import (
 	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/onet/v3/log"
 	"go.dedis.ch/onet/v3/network"
+	"go.dedis.ch/protobuf"
 	"golang.org/x/xerrors"
 	"sync"
 )
@@ -42,6 +44,8 @@ type Service struct {
 	storage           *storage
 	genesisBlocks     map[string]*skipchain.SkipBlock
 	genesisBlocksLock sync.Mutex
+	storedKeys        map[string][]byte
+	skLock            sync.Mutex
 }
 
 // storageID reflects the data we're storing - we could store more
@@ -53,24 +57,49 @@ type storage struct {
 	sync.Mutex
 }
 
+//func (s *Service) StoreData(req *StoreRequest) (*StoreReply, error) {
+//	storedKey, err := s.db.StoreData(req)
+//	if err != nil {
+//		return nil, err
+//	}
+//	reply := &StoreReply{
+//		StoredKey: storedKey,
+//	}
+//	return reply, nil
+//}
+
 func (s *Service) StoreData(req *StoreRequest) (*StoreReply, error) {
-	storedKey, err := s.db.StoreData(req)
+	dataHash := sha256.Sum256(req.Data)
+	if bytes.Compare(dataHash[:], req.DataHash) != 0 {
+		return nil, xerrors.New("hashes do not match")
+	}
+	val, err := protobuf.Encode(req)
 	if err != nil {
+		log.Error(err)
 		return nil, err
 	}
+	keyStr := hex.EncodeToString(dataHash[:])
+	s.skLock.Lock()
+	s.storedKeys[keyStr] = val
+	s.skLock.Unlock()
 	reply := &StoreReply{
-		StoredKey: storedKey,
+		StoredKey: keyStr,
 	}
 	return reply, nil
 }
 
-func (s *Service) Decrypt(req *DecryptRequest) (*DecryptReply, error) {
+func (s *Service) Decrypt(req *SCDecryptRequest) (*SCDecryptReply, error) {
 	sk := s.ServerIdentity().GetPrivate()
-	storedData, err := s.db.GetStoredData(req.Key)
+	//storedData, err := s.db.GetStoredData(req.Key)
+	var storedData StoreRequest
+	val := s.storedKeys[req.Key]
+	err := protobuf.Decode(val, &storedData)
 	if err != nil {
+		log.Error(err)
 		return nil, err
 	}
-	writeTxn, err := s.verifyDecryptRequest(req, storedData)
+	writeTxn, err := s.verifyDecryptRequest(req, &storedData)
+	//writeTxn, err := s.verifyDecryptRequest(req, storedData)
 	if err != nil {
 		log.Errorf("getDecryptedData error: %v", err)
 		return nil, err
@@ -80,7 +109,7 @@ func (s *Service) Decrypt(req *DecryptRequest) (*DecryptReply, error) {
 		log.Errorf("getDecryptedData error: %v", err)
 		return nil, err
 	}
-	return &DecryptReply{Data: storedData.Data, DataHash: storedData.DataHash, K: k, C: c}, nil
+	return &SCDecryptReply{Data: storedData.Data, DataHash: storedData.DataHash, K: k, C: c}, nil
 }
 
 func reencryptData(wt *SCWrite, sk kyber.Scalar) (kyber.Point, kyber.Point, error) {
@@ -107,7 +136,7 @@ func reencryptData(wt *SCWrite, sk kyber.Scalar) (kyber.Point, kyber.Point, erro
 	return k, c, nil
 }
 
-func (s *Service) verifyDecryptRequest(req *DecryptRequest,
+func (s *Service) verifyDecryptRequest(req *SCDecryptRequest,
 	storedData *StoreRequest) (*SCWrite, error) {
 	log.Lvl2("Re-encrypt the key to the public key of the reader")
 
@@ -221,6 +250,7 @@ func newSemiCentralizedService(c *onet.Context) (onet.Service, error) {
 		ServiceProcessor: onet.NewServiceProcessor(c),
 		db:               NewSemiCentralDB(db, bucket),
 		genesisBlocks:    make(map[string]*skipchain.SkipBlock),
+		storedKeys:       make(map[string][]byte),
 	}
 	if err := s.RegisterHandlers(s.StoreData, s.Decrypt); err != nil {
 		return nil, xerrors.New("Couldn't register messages")

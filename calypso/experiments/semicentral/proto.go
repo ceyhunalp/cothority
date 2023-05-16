@@ -9,7 +9,7 @@ import (
 
 func init() {
 	network.RegisterMessages(&StoreRequest{}, &StoreReply{},
-		&DecryptRequest{}, &DecryptReply{})
+		&SCDecryptRequest{}, &SCDecryptReply{})
 }
 
 type SemiCentralDB struct {
@@ -34,14 +34,14 @@ type StoreReply struct {
 	StoredKey string
 }
 
-type DecryptRequest struct {
+type SCDecryptRequest struct {
 	Write byzcoin.Proof
 	Read  byzcoin.Proof
 	Key   string
 	Sig   []byte
 }
 
-type DecryptReply struct {
+type SCDecryptReply struct {
 	Data     []byte
 	DataHash []byte
 	K        kyber.Point

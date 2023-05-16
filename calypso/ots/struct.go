@@ -10,7 +10,8 @@ import (
 )
 
 func init() {
-	network.RegisterMessages(OTSDKRequest{}, OTSDKReply{})
+	network.RegisterMessages(OTSDKRequest{}, OTSDKReply{}, OTSBatchDKRequest{},
+		OTSBatchDKReply{})
 }
 
 func (w *Write) VerifyWrite(suite suites.Suite, darcID darc.ID) error {

@@ -107,6 +107,13 @@ func (c *Client) DecryptKey(dkr *OTSDKRequest) (reply *OTSDKReply,
 	return reply, err
 }
 
+func (c *Client) BatchDecryptKey(dkr *OTSBatchDKRequest) (reply *OTSBatchDKReply,
+	err error) {
+	reply = &OTSBatchDKReply{}
+	err = c.c.SendProtobuf(c.bcClient.Roster.List[0], dkr, reply)
+	return reply, err
+}
+
 func (c *Client) SpawnDarc(signer darc.Signer, signerCtr uint64,
 	controlDarc darc.Darc, spawnDarc darc.Darc, wait int) (
 	reply *byzcoin.AddTxResponse, err error) {

@@ -11,5 +11,6 @@ BlockTime = 10
 BlkFile = "../input/blk.data"
 TxnFile = "../input/txn.data"
 ProtoName = "SC"
-NumWriteTxns = 1821
-NumReadTxns = 1470
+
+NumWriteTxns,NumReadTxns
+1821,1470

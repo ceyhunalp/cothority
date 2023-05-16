@@ -11,6 +11,7 @@ Suite = "Ed25519"
 BlockTime = 10
 BlkFile = "../input/blk.data"
 TxnFile = "../input/txn.data"
-ProtoName = "POTS"
-NumWriteTxns = 1821
-NumReadTxns = 1470
+ProtoName = "PQOTS"
+
+NumWriteTxns,NumReadTxns
+1821,1470

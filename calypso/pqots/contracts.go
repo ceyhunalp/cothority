@@ -46,9 +46,6 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 			err = xerrors.New("need a write txn in 'writetxn' argument")
 			return
 		}
-		//var wTxn WriteTxn
-		//err = protobuf.DecodeWithConstructors(buf, &wTxn,
-		//	network.DefaultConstructors(cothority.Suite))
 		err = protobuf.DecodeWithConstructors(buf, &c.WriteTxn,
 			network.DefaultConstructors(cothority.Suite))
 		if err != nil {
@@ -57,7 +54,6 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 			return
 		}
 		if err = c.WriteTxn.CheckSignatures(cothority.Suite); err != nil {
-			//if err = wTxn.CheckSignatures(cothority.Suite); err != nil {
 			log.Error(err)
 			err = xerrors.Errorf("Verifying write failed: %v", err)
 			return
@@ -72,7 +68,6 @@ func (c ContractPQOTSWrite) Spawn(rst byzcoin.ReadOnlyStateTrie,
 				"couldn't get ID for instance: %v", err)
 		}
 		log.Lvlf3("Successfully verified write request and will store in %x", instID)
-		//wb, err := protobuf.Encode(&wTxn.Write)
 		wb, err := protobuf.Encode(&c.Write)
 		if err != nil {
 			log.Error(err)

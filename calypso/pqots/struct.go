@@ -31,15 +31,17 @@ func (wr *WriteTxn) CheckSignatures(suite suite) error {
 	h.Write(wb)
 	buf := h.Sum(nil)
 	for i, pk := range wr.Write.Publics {
-		err := schnorr.Verify(suite, pk, buf, wr.Sigs[i])
-		if err == nil {
-			validSig++
-			if validSig >= wr.Threshold {
-				success = true
-				break
+		if _, ok := wr.Sigs[i]; ok {
+			err = schnorr.Verify(suite, pk, buf, wr.Sigs[i])
+			if err == nil {
+				validSig++
+				if validSig >= wr.Threshold {
+					success = true
+					break
+				}
+			} else {
+				log.Errorf("Cannot verify signature for node %d: %v", i, err)
 			}
-		} else {
-			log.Errorf("Cannot verify signature for node %d: %v", i, err)
 		}
 	}
 	if success {

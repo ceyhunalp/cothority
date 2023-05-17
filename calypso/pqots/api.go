@@ -6,11 +6,8 @@ import (
 	"go.dedis.ch/cothority/v3/darc"
 	"go.dedis.ch/kyber/v3/share"
 	"go.dedis.ch/onet/v3"
-	"go.dedis.ch/onet/v3/log"
-	"go.dedis.ch/onet/v3/network"
 	"go.dedis.ch/protobuf"
 	"golang.org/x/xerrors"
-	"sync"
 	"time"
 )
 
@@ -36,76 +33,19 @@ type ReadReply struct {
 	byzcoin.InstanceID
 }
 
-//func (c *Client) VerifyWriteAll(t int, roster *onet.Roster, write *Write,
-//	shares []*share.PriShare, rands [][]byte) (replies map[int]*VerifyWriteReply,
-//	err error) {
-//	replies = make(map[int]*VerifyWriteReply)
-//	success := 0
-//	fail := 0
-//	ft := len(roster.List) - t
-//	for i, who := range roster.List {
-//		reply := &VerifyWriteReply{}
-//		err = c.c.SendProtobuf(who,
-//			&VerifyWriteRequest{
-//				Idx:   i,
-//				Write: write,
-//				Share: shares[i],
-//				Rand:  rands[i],
-//			}, reply)
-//		if err != nil {
-//			fail++
-//		} else {
-//			replies[i] = reply
-//			success++
-//		}
-//		if success >= t {
-//			return replies, nil
-//		}
-//		if fail >= ft {
-//			return nil, xerrors.New("too many errors")
-//		}
-//	}
-//	return nil, xerrors.New("not enough verifications")
-//}
-
-func (c *Client) VerifyWriteAll(roster *onet.Roster, write *Write,
-	shares []*share.PriShare, rands [][]byte) []*VerifyWriteReply {
-	var wg sync.WaitGroup
-	replies := make([]*VerifyWriteReply, len(shares))
-	for i, who := range roster.List {
-		wg.Add(1)
-		go func(c *Client, who *network.ServerIdentity, w *Write,
-			sh *share.PriShare, r []byte, idx int, rps []*VerifyWriteReply) {
-			defer wg.Done()
-			//reply, _ := c.VerifyWrite(who, w, sh, r, idx)
-			//rps[idx] = reply
-			reply := &VerifyWriteReply{}
-			err := c.c.SendProtobuf(who, &VerifyWriteRequest{Idx: idx,
-				Write: w, Share: sh, Rand: r}, reply)
-			if err != nil {
-				log.Error(err)
-				rps[idx] = nil
-			} else {
-				rps[idx] = reply
-			}
-		}(c, who, write, shares[i], rands[i], i, replies)
+func (c *Client) VerifyWriteAll(t int, roster *onet.Roster, write *Write,
+	shares []*share.PriShare, rands [][]byte) (*VerifyWriteReply, error) {
+	reply := &VerifyWriteReply{}
+	req := &VerifyWriteRequest{
+		Roster:    roster,
+		Threshold: t,
+		Write:     write,
+		Shares:    shares,
+		Rands:     rands,
 	}
-	wg.Wait()
-	return replies
+	err := c.c.SendProtobuf(c.bcClient.Roster.List[0], req, reply)
+	return reply, err
 }
-
-//func (c *Client) VerifyWrite(who *network.ServerIdentity, write *Write,
-//	share *share.PriShare, rand []byte, idx int) (reply *VerifyWriteReply,
-//	err error) {
-//	reply = &VerifyWriteReply{}
-//	err = c.c.SendProtobuf(who, &VerifyWriteRequest{
-//		Idx:   idx,
-//		Write: write,
-//		Share: share,
-//		Rand:  rand,
-//	}, reply)
-//	return reply, cothority.ErrorOrNil(err, "Sending VerifyWriteRequest request")
-//}
 
 func (c *Client) AddWrite(write *Write, sigs map[int][]byte, t int,
 	signer darc.Signer, signerCtr uint64, darc darc.Darc,
@@ -229,13 +169,4 @@ func (c *Client) SpawnDarc(signer darc.Signer, signerCtr uint64,
 func (c *Client) WaitProof(id byzcoin.InstanceID, interval time.Duration,
 	value []byte) (*byzcoin.Proof, error) {
 	return c.bcClient.WaitProof(id, interval, value)
-}
-
-func (c *Client) Close() error {
-	err := c.bcClient.Close()
-	if err != nil {
-		return err
-	}
-	err = c.c.Close()
-	return err
 }

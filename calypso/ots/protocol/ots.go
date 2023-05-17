@@ -85,7 +85,6 @@ func (o *OTS) Start() error {
 		log.Lvl1("OTS protocol timeout")
 		o.finish(false)
 	})
-	//errs := o.SendToChildrenInParallel(rc)
 	errs := o.Broadcast(rc)
 	if len(errs) > len(o.Roster().List)-o.Threshold {
 		log.Errorf("Some nodes failed with error(s) %v", errs)

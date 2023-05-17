@@ -20,15 +20,22 @@ type WriteTxn struct {
 	Sigs      map[int][]byte
 }
 
-type VerifyWriteRequest struct {
-	Idx   int
+type VfData struct {
 	Write *Write
 	Share *share.PriShare
 	Rand  []byte
 }
 
+type VerifyWriteRequest struct {
+	Roster    *onet.Roster
+	Threshold int
+	Write     *Write
+	Shares    []*share.PriShare
+	Rands     [][]byte
+}
+
 type VerifyWriteReply struct {
-	Sig []byte
+	Sigs map[int][]byte
 }
 
 // Read is the data stored in a read instance. It has a pointer to the write

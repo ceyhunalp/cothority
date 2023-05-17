@@ -50,38 +50,52 @@ type vData struct {
 	Write *byzcoin.Proof
 }
 
-func (s *Service) VerifyWrite(req *VerifyWriteRequest) (*VerifyWriteReply,
-	error) {
-	err := verifyCommitment(req)
+func (s *Service) VerifyWrite(req *VerifyWriteRequest) (*VerifyWriteReply, error) {
+	nodes := len(req.Roster.List)
+	tree := req.Roster.GenerateNaryTreeWithRoot(nodes, s.ServerIdentity())
+	pi, err := s.CreateProtocol(protocol.NamePQOTSVerify, tree)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to create the pqots-vf-protocol: %v",
+			err)
 	}
-	wb, err := protobuf.Encode(req.Write)
+	var vfDataBufs [][]byte
+	for idx, _ := range req.Roster.List {
+		vfData := &VfData{
+			Write: req.Write,
+			Share: req.Shares[idx],
+			Rand:  req.Rands[idx],
+		}
+		vfDataBuf, err := protobuf.Encode(vfData)
+		if err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		vfDataBufs = append(vfDataBufs, vfDataBuf)
+	}
+	pqVfProto := pi.(*protocol.PQOTSVf)
+	pqVfProto.Threshold = req.Threshold
+	pqVfProto.VfData = vfDataBufs
+	pqVfProto.ExecFn = s.executeVerify
+	err = pqVfProto.Start()
 	if err != nil {
-		return nil, xerrors.Errorf("Cannot sign write txn: %v", err)
+		return nil, xerrors.Errorf("failed to start pqots-vf-protocol: %v", err)
 	}
-	h := sha256.New()
-	h.Write(wb)
-	buf := h.Sum(nil)
-	sig, err := schnorr.Sign(cothority.Suite, s.ServerIdentity().GetPrivate(), buf)
-	if err != nil {
-		return nil, err
+	if !<-pqVfProto.Verified {
+		return nil, xerrors.New("verification got refused")
 	}
-	s.storage.Lock()
-	s.storage.Shares[hex.EncodeToString(buf)] = req.Share
-	s.storage.Unlock()
-	return &VerifyWriteReply{Sig: sig}, nil
+	log.Lvl3("verification protocol is done.")
+	return &VerifyWriteReply{Sigs: pqVfProto.Sigs}, nil
 }
 
-func verifyCommitment(req *VerifyWriteRequest) error {
-	cmt := req.Write.Commitments[req.Idx]
-	shb, err := req.Share.V.MarshalBinary()
+func verifyCommitment(idx int, data *VfData) error {
+	cmt := data.Write.Commitments[idx]
+	shb, err := data.Share.V.MarshalBinary()
 	if err != nil {
 		return xerrors.Errorf("Cannot verify commitment: %v", err)
 	}
 	h := sha256.New()
 	h.Write(shb)
-	h.Write(req.Rand)
+	h.Write(data.Rand)
 	tmpCmt := h.Sum(nil)
 	if !bytes.Equal(cmt, tmpCmt) {
 		return xerrors.New("Commitments do not match")
@@ -213,6 +227,15 @@ func (s *Service) fetchGenesisBlock(scID skipchain.SkipBlockID, roster *onet.Ros
 func (s *Service) NewProtocol(tn *onet.TreeNodeInstance,
 	conf *onet.GenericConfig) (onet.ProtocolInstance, error) {
 	switch tn.ProtocolName() {
+	case protocol.NamePQOTSVerify:
+		pi, err := protocol.NewPQOTSVf(tn)
+		if err != nil {
+			return nil, xerrors.Errorf(
+				"creating PQOTSVerify protocol instance: %v", err)
+		}
+		pqVf := pi.(*protocol.PQOTSVf)
+		pqVf.ExecFn = s.executeVerify
+		return pqVf, nil
 	case protocol.NamePQOTS:
 		pi, err := protocol.NewPQOTS(tn)
 		if err != nil {
@@ -226,13 +249,47 @@ func (s *Service) NewProtocol(tn *onet.TreeNodeInstance,
 		pi, err := protocol.NewBatchPQOTS(tn)
 		if err != nil {
 			return nil, xerrors.Errorf(
-				"creating PQOTS protocol instance: %v", err)
+				"creating BatchPQOTS protocol instance: %v", err)
 		}
 		batchPqOts := pi.(*protocol.BatchPQOTS)
 		batchPqOts.Verify = s.verifyBatchReencryption
 		return batchPqOts, nil
 	}
 	return nil, nil
+}
+
+func (s *Service) executeVerify(idx int, buf []byte) (*share.PriShare, []byte, error) {
+	sh, sig, err := func(int, []byte) (*share.PriShare, []byte, error) {
+		var vfData VfData
+		err := protobuf.Decode(buf, &vfData)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("decoding verification data: %v", err)
+		}
+		err = verifyCommitment(idx, &vfData)
+		if err != nil {
+			return nil, nil, err
+		}
+		wb, err := protobuf.Encode(vfData.Write)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("encoding error: %v", err)
+		}
+		h := sha256.New()
+		h.Write(wb)
+		wbHash := h.Sum(nil)
+		sig, err := schnorr.Sign(cothority.Suite, s.ServerIdentity().GetPrivate(), wbHash)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.storage.Lock()
+		s.storage.Shares[hex.EncodeToString(wbHash)] = vfData.Share
+		s.storage.Unlock()
+		return vfData.Share, sig, nil
+	}(idx, buf)
+	if err != nil {
+		log.Error(err)
+		return nil, nil, err
+	}
+	return sh, sig, err
 }
 
 func (s *Service) verifyReencryption(rc *protocol.PQOTSReencrypt) *share.PriShare {

@@ -73,7 +73,6 @@ func (p *PQOTS) Start() error {
 		log.Lvl1("PQOTS protocol timeout")
 		p.finish(false)
 	})
-	//errs := p.SendToChildrenInParallel(rc)
 	errs := p.Broadcast(rc)
 	if len(errs) > len(p.Roster().List)-p.Threshold {
 		log.Errorf("Some nodes failed with error(s) %v", errs)
@@ -83,9 +82,7 @@ func (p *PQOTS) Start() error {
 }
 
 func (p *PQOTS) reencrypt(r structPQOTSReencrypt) error {
-	log.Lvl3(p.Name() + ": starting reencrypt")
 	defer p.Done()
-
 	if p.Verify != nil {
 		p.Share = p.Verify(&r.PQOTSReencrypt)
 		if p.Share == nil {

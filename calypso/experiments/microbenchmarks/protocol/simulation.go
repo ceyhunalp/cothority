@@ -4,7 +4,6 @@ import (
 	"go.dedis.ch/cothority/v3/calypso/pqots"
 	"go.dedis.ch/kyber/v3/share"
 	"go.dedis.ch/onet/v3/simul/monitor"
-	"golang.org/x/xerrors"
 	"math/rand"
 	"time"
 
@@ -70,17 +69,18 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		return err
 	}
 	cl := ots.NewClient(byzd.Cl)
-	_, err = cl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, 10)
+	_, err = cl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, 2)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	byzd.AdminCtr++
 
+	wait := 0
 	writerCtr := uint64(1)
 	readerCtr := uint64(1)
 	for i := 0; i < s.Rounds; i++ {
-		cwr := monitor.NewTimeMeasure("client_write")
+		cwr := monitor.NewTimeMeasure("cl_wr")
 		shares, _, pr, secret, err := ots.RunPVSS(cothority.Suite,
 			s.NodeCount, s.Threshold, s.Publics, wDarc.GetID())
 		if err != nil {
@@ -103,8 +103,8 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		}
 		cwr.Record()
 
-		acw := monitor.NewTimeMeasure("ac_write")
-		wrReply, err := cl.AddWrite(&w, writer, writerCtr, *wDarc, 10)
+		acw := monitor.NewTimeMeasure("ac_wr")
+		wrReply, err := cl.AddWrite(&w, writer, writerCtr, *wDarc, wait)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -116,8 +116,8 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		}
 		acw.Record()
 
-		acr := monitor.NewTimeMeasure("ac_read")
-		rReply, err := cl.AddRead(wrPr, reader, readerCtr, 10)
+		acr := monitor.NewTimeMeasure("ac_r")
+		rReply, err := cl.AddRead(wrPr, reader, readerCtr, wait)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -129,19 +129,18 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		}
 		acr.Record()
 
-		if i == 0 {
-			_, err = cl.DecryptKey(&ots.OTSDKRequest{
-				Roster:    config.Roster,
-				Threshold: s.Threshold,
-				Read:      *rPr,
-				Write:     *wrPr,
-			})
-			if err != nil {
-				log.Error(err)
-				return err
-			}
+		_, err = cl.DecryptKey(&ots.OTSDKRequest{
+			Roster:    config.Roster,
+			Threshold: s.Threshold,
+			Read:      *rPr,
+			Write:     *wrPr,
+		})
+		if err != nil {
+			log.Error(err)
+			return err
 		}
-		smd := monitor.NewTimeMeasure("sm_decrypt")
+
+		smd := monitor.NewTimeMeasure("decrypt")
 		dkr, err := cl.DecryptKey(&ots.OTSDKRequest{
 			Roster:    config.Roster,
 			Threshold: s.Threshold,
@@ -176,7 +175,6 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 			return err
 		}
 		r.Record()
-		//log.Info("Match:", bytes.Equal(ptxt, mesg))
 		writerCtr++
 		readerCtr++
 	}
@@ -190,17 +188,18 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 		return err
 	}
 	cl := pqots.NewClient(byzd.Cl)
-	_, err = cl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, 10)
+	_, err = cl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, 2)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	byzd.AdminCtr++
 
+	wait := 0
 	writerCtr := uint64(1)
 	readerCtr := uint64(1)
 	for i := 0; i < s.Rounds; i++ {
-		cwr := monitor.NewTimeMeasure("client_write")
+		cwr := monitor.NewTimeMeasure("cl_wr")
 		poly := pqots.GenerateSSPoly(s.Threshold)
 		shares, rands, commitments, err := pqots.GenerateCommitments(poly,
 			s.NodeCount)
@@ -219,59 +218,53 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 			CtxtHash: ctxtHash}
 		cwr.Record()
 
-		sigs := make(map[int][]byte)
-		v := monitor.NewTimeMeasure("verify_write")
-		replies := cl.VerifyWriteAll(config.Roster, &wr, shares, rands)
-		if len(replies) < s.VerifyThreshold {
-			log.Errorf("not enough verifications")
-			return xerrors.New("not enough verifications")
-		}
-		for id, r := range replies {
-			sigs[id] = r.Sig
+		v := monitor.NewTimeMeasure("verify_wr")
+		reply, err := cl.VerifyWriteAll(s.VerifyThreshold, config.Roster, &wr,
+			shares, rands)
+		if err != nil {
+			return err
 		}
 		v.Record()
-
-		acw := monitor.NewTimeMeasure("ac_write")
-		wReply, err := cl.AddWrite(&wr, sigs, s.VerifyThreshold, writer, writerCtr, *wDarc,
-			10)
+		acw := monitor.NewTimeMeasure("ac_wr")
+		wReply, err := cl.AddWrite(&wr, reply.Sigs, s.VerifyThreshold, writer,
+			writerCtr, *wDarc, wait)
 		if err != nil {
 			log.Error(err)
 			return err
 		}
-		wrPr, err := cl.WaitProof(wReply.InstanceID, time.Duration(commons.WP_INTERVAL),
-			nil)
+		wrPr, err := cl.WaitProof(wReply.InstanceID,
+			time.Duration(commons.WP_INTERVAL), nil)
 		if err != nil {
 			log.Error(err)
 			return err
 		}
 		acw.Record()
 
-		acr := monitor.NewTimeMeasure("ac_read")
-		rReply, err := cl.AddRead(wrPr, reader, readerCtr, 10)
+		acr := monitor.NewTimeMeasure("ac_r")
+		rReply, err := cl.AddRead(wrPr, reader, readerCtr, wait)
 		if err != nil {
 			log.Error(err)
 			return err
 		}
-		rPr, err := cl.WaitProof(rReply.InstanceID, time.Duration(commons.WP_INTERVAL), nil)
+		rPr, err := cl.WaitProof(rReply.InstanceID,
+			time.Duration(commons.WP_INTERVAL), nil)
 		if err != nil {
 			log.Error(err)
 			return err
 		}
 		acr.Record()
 
-		if i == 0 {
-			_, err = cl.DecryptKey(&pqots.PQOTSDKRequest{
-				Roster:    config.Roster,
-				Threshold: s.Threshold,
-				Read:      *rPr,
-				Write:     *wrPr,
-			})
-			if err != nil {
-				log.Error(err)
-				return err
-			}
+		_, err = cl.DecryptKey(&pqots.PQOTSDKRequest{
+			Roster:    config.Roster,
+			Threshold: s.Threshold,
+			Read:      *rPr,
+			Write:     *wrPr,
+		})
+		if err != nil {
+			log.Error(err)
+			return err
 		}
-		smd := monitor.NewTimeMeasure("sm_decrypt")
+		dm := monitor.NewTimeMeasure("decrypt")
 		dkr, err := cl.DecryptKey(&pqots.PQOTSDKRequest{
 			Roster:    config.Roster,
 			Threshold: s.Threshold,
@@ -282,7 +275,7 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 			log.Error(err)
 			return err
 		}
-		smd.Record()
+		dm.Record()
 
 		r := monitor.NewTimeMeasure("recover")
 		decShares := pqots.ElGamalDecrypt(cothority.Suite, reader.Ed25519.Secret, dkr.Reencryptions)
@@ -298,9 +291,6 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 			return err
 		}
 		r.Record()
-
-		//log.Info("Matching secret:", recSecret.Equal(poly.Secret()))
-		//log.Info("Matching ptext:", bytes.Equal(ptxt, mesg))
 		writerCtr++
 		readerCtr++
 	}

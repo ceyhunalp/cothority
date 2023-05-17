@@ -77,8 +77,7 @@ func (s *SimulationService) Node(config *onet.SimulationConfig) error {
 	return s.SimulationBFTree.Node(config)
 }
 
-func (s *SimulationService) prepareOTSWrites(wDarc *darc.Darc) ([]*ots.
-Write, [][]*pvss.PubVerShare, [][]byte, error) {
+func (s *SimulationService) prepareOTSWrites(wDarc *darc.Darc) ([]*ots.Write, [][]*pvss.PubVerShare, [][]byte, error) {
 	writes := make([]*ots.Write, MAX_TXN_CNT)
 	shares := make([][]*pvss.PubVerShare, MAX_TXN_CNT)
 	encData := make([][]byte, MAX_TXN_CNT)
@@ -86,12 +85,14 @@ Write, [][]*pvss.PubVerShare, [][]byte, error) {
 		sh, _, pr, secret, err := ots.RunPVSS(cothority.Suite,
 			s.NodeCount, s.Threshold, s.Publics, wDarc.GetID())
 		if err != nil {
+			log.Error(err)
 			return nil, nil, nil, err
 		}
 		data := make([]byte, 32)
 		rand.Read(data)
 		ctxt, ctxtHash, err := ots.Encrypt(cothority.Suite, secret, data)
 		if err != nil {
+			log.Error(err)
 			return nil, nil, nil, err
 		}
 		writes[i] = &ots.Write{
@@ -109,13 +110,11 @@ Write, [][]*pvss.PubVerShare, [][]byte, error) {
 
 func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 	wait := 0
-	wrReplies := make([]*ots.WriteReply, MAX_TXN_CNT)
 	wrProofs := make([]*byzcoin.Proof, MAX_TXN_CNT)
-	rReplies := make([]*ots.ReadReply, MAX_TXN_CNT)
-	rProofs := make([]*byzcoin.Proof, MAX_TXN_CNT)
 	for round := 0; round < s.Rounds; round++ {
 		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, MAX_TXN_CNT)
+		writers, wCtrs, readers, rCtrs,
+			wDarc := commons.CreateMultiClientDarc(s.ProtoName, MAX_TXN_CNT)
 		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
 		if err != nil {
 			return err
@@ -134,18 +133,19 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		if err != nil {
 			return err
 		}
+
 		var wg sync.WaitGroup
 		wg.Add(MAX_TXN_CNT)
 		for i := 0; i < MAX_TXN_CNT; i++ {
 			go func(idx int) {
 				defer wg.Done()
-				wrReplies[idx], err = baseCl.AddWrite(writes[idx], writers[idx],
+				wrReply, err := baseCl.AddWrite(writes[idx], writers[idx],
 					wCtrs[idx], *wDarc, wait)
 				if err != nil {
 					log.Error(err)
 				}
 				wCtrs[idx]++
-				wrProofs[idx], err = baseCl.WaitProof(wrReplies[idx].InstanceID,
+				wrProofs[idx], err = baseCl.WaitProof(wrReply.InstanceID,
 					time.Duration(commons.WP_INTERVAL), nil)
 				if err != nil {
 					log.Error(err)
@@ -160,60 +160,82 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 		}
 
 		txnIdx := 0
+		wIdx := -1
+		rIdx := -1
 		for blkIdx := 0; blkIdx < s.NumBlks; blkIdx++ {
 			numTxns := s.Blks[blkIdx]
 			txns := s.Txns[txnIdx : txnIdx+numTxns]
 			txnIdx += numTxns
-			wIdx := 0
-			rIdx := 0
 			wg.Add(numTxns)
 			for i := 0; i < numTxns; i++ {
 				if txns[i] == 1 {
 					// Write
-					go func(idx int) {
+					wIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", wIdx))
-						reply, err := ccs[idx].AddWrite(writes[idx],
-							writers[idx], wCtrs[idx], *wDarc, wait)
+						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", idx))
+						// Prepare write
+						sh, _, pr, secret, err := ots.RunPVSS(cothority.Suite,
+							s.NodeCount, s.Threshold, s.Publics, wDarc.GetID())
 						if err != nil {
 							log.Error(err)
 						}
-						wCtrs[idx]++
-						pr, err := ccs[idx].WaitProof(reply.InstanceID,
-							time.Duration(commons.WP_INTERVAL), nil)
+						data := make([]byte, 32)
+						rand.Read(data)
+						_, ctxtHash, err := ots.Encrypt(cothority.Suite, secret, data)
 						if err != nil {
 							log.Error(err)
 						}
-						if !pr.InclusionProof.Match(reply.InstanceID.Slice()) {
+						write := &ots.Write{
+							PolicyID: wDarc.GetID(),
+							Shares:   sh,
+							Proofs:   pr,
+							Publics:  s.Publics,
+							CtxtHash: ctxtHash,
+						}
+						// Add write
+						reply, err := ccs[clIdx].AddWrite(write,
+							writers[clIdx], wCtrs[clIdx], *wDarc, wait)
+						if err != nil {
+							log.Error(err)
+						}
+						wCtrs[clIdx]++
+						wp, err := ccs[clIdx].WaitProof(reply.
+							InstanceID, time.Duration(commons.WP_INTERVAL), nil)
+						if err != nil {
+							log.Error(err)
+						}
+						if !wp.InclusionProof.Match(reply.InstanceID.Slice()) {
 							log.Errorf("write inclusion proof does not match")
 						}
 						wm.Record()
-					}(wIdx)
-					wIdx++
+					}(i, wIdx)
 				} else {
 					// Read
-					go func(idx int) {
+					rIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", rIdx))
-						rReplies[idx], err = ccs[idx].AddRead(wrProofs[idx], readers[idx],
-							rCtrs[idx], wait)
+						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", idx))
+						modIdx := idx % MAX_TXN_CNT
+						rReply, err := ccs[clIdx].AddRead(wrProofs[modIdx],
+							readers[modIdx], rCtrs[modIdx], wait)
 						if err != nil {
 							log.Error(err)
 						}
-						rCtrs[idx]++
-						rProofs[idx], err = ccs[idx].WaitProof(rReplies[idx].InstanceID,
-							time.Duration(commons.WP_INTERVAL), nil)
+						rCtrs[modIdx]++
+						rProof, err := ccs[clIdx].WaitProof(rReply.
+							InstanceID, time.Duration(commons.WP_INTERVAL), nil)
 						if err != nil {
 							log.Error(err)
 						}
-						if !rProofs[idx].InclusionProof.Match(rReplies[idx].InstanceID.Slice()) {
+						if !rProof.InclusionProof.Match(rReply.InstanceID.Slice()) {
 							log.Errorf("read inclusion proof does not match")
 						}
-						dkr, err := ccs[idx].DecryptKey(&ots.OTSDKRequest{
+						dkr, err := ccs[clIdx].DecryptKey(&ots.OTSDKRequest{
 							Roster:    config.Roster,
 							Threshold: s.Threshold,
-							Read:      *rProofs[idx],
-							Write:     *wrProofs[idx],
+							Read:      *rProof,
+							Write:     *wrProofs[modIdx],
 						})
 						if err != nil {
 							log.Error(err)
@@ -221,40 +243,38 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 						var keys []kyber.Point
 						var encShares []*pvss.PubVerShare
 						g := cothority.Suite.Point().Base()
-						decShares := ots.ElGamalDecrypt(cothority.Suite, readers[idx].Ed25519.Secret,
-							dkr.Reencryptions)
+						decShares := ots.ElGamalDecrypt(cothority.Suite,
+							readers[modIdx].Ed25519.Secret, dkr.Reencryptions)
 						for _, ds := range decShares {
 							keys = append(keys, s.Publics[ds.S.I])
-							encShares = append(encShares, shares[idx][ds.S.I])
+							encShares = append(encShares, shares[modIdx][ds.S.I])
 						}
-						recSecret, err := pvss.RecoverSecret(cothority.Suite, g, keys, encShares,
-							decShares, s.Threshold, s.NodeCount)
+						recSecret, err := pvss.RecoverSecret(cothority.Suite,
+							g, keys, encShares, decShares, s.Threshold,
+							s.NodeCount)
 						if err != nil {
 							log.Error(err)
 						}
-						_, err = ots.Decrypt(recSecret, encData[idx])
+						_, err = ots.Decrypt(recSecret, encData[wIdx])
 						if err != nil {
 							log.Error(err)
 						}
 						rm.Record()
-					}(rIdx)
-					rIdx++
+					}(i, rIdx)
 				}
 			}
 			wg.Wait()
-
 		}
 	}
 	return nil
 }
 
 func (s *SimulationService) preparePQOTSWrites() ([]*pqots.Write,
-	[][]*share.PriShare, [][][]byte, []map[int][]byte, [][]byte, error) {
+	[][]*share.PriShare, [][][]byte, [][]byte, error) {
 	encData := make([][]byte, MAX_TXN_CNT)
 	writes := make([]*pqots.Write, MAX_TXN_CNT)
 	shares := make([][]*share.PriShare, MAX_TXN_CNT)
 	rands := make([][][]byte, MAX_TXN_CNT)
-	sigs := make([]map[int][]byte, MAX_TXN_CNT)
 	for i := 0; i < MAX_TXN_CNT; i++ {
 		var commitments [][]byte
 		var err error
@@ -263,7 +283,7 @@ func (s *SimulationService) preparePQOTSWrites() ([]*pqots.Write,
 			s.NodeCount)
 		if err != nil {
 			log.Error(err)
-			return nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		ticket := make([]byte, 32)
 		rand.Read(ticket)
@@ -273,19 +293,16 @@ func (s *SimulationService) preparePQOTSWrites() ([]*pqots.Write,
 			CtxtHash: ctxtHash}
 		encData[i] = ctxt
 	}
-	return writes, shares, rands, sigs, encData, nil
+	return writes, shares, rands, encData, nil
 }
 
 func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 	wait := 0
-	wrReplies := make([]*pqots.WriteReply, s.NumTxns)
-	wrProofs := make([]*byzcoin.Proof, s.NumTxns)
-	rReplies := make([]*pqots.ReadReply, s.NumTxns)
-	rProofs := make([]*byzcoin.Proof, s.NumTxns)
-
+	wrProofs := make([]*byzcoin.Proof, MAX_TXN_CNT)
 	for round := 0; round < s.Rounds; round++ {
 		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
+		writers, wCtrs, readers, rCtrs,
+			wDarc := commons.CreateMultiClientDarc(s.ProtoName, MAX_TXN_CNT)
 		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
 		if err != nil {
 			return err
@@ -300,7 +317,7 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 		}
 		byzd.AdminCtr++
 
-		writes, shares, rands, sigs, encData, err := s.preparePQOTSWrites()
+		writes, shares, rands, encData, err := s.preparePQOTSWrites()
 		if err != nil {
 			return err
 		}
@@ -310,25 +327,19 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 		for i := 0; i < MAX_TXN_CNT; i++ {
 			go func(idx int) {
 				defer wg.Done()
-				replies := baseCl.VerifyWriteAll(config.Roster, writes[idx],
-					shares[idx], rands[idx])
-				if len(replies) < s.VerifyThreshold {
-					log.Errorf("not enough verifications")
+				reply, err := baseCl.VerifyWriteAll(s.VerifyThreshold,
+					config.Roster, writes[idx], shares[idx], rands[idx])
+				if err != nil {
+					log.Error(err)
 				}
-				sigs[idx] = make(map[int][]byte)
-				for id, r := range replies {
-					sigs[idx][id] = r.Sig
-				}
-
-				wrReplies[idx], err = baseCl.AddWrite(writes[idx],
-					sigs[idx], s.VerifyThreshold, writers[idx],
+				wrReply, err := baseCl.AddWrite(writes[idx],
+					reply.Sigs, s.VerifyThreshold, writers[idx],
 					wCtrs[idx], *wDarc, wait)
 				if err != nil {
 					log.Error(err)
 				}
 				wCtrs[idx]++
-
-				wrProofs[idx], err = baseCl.WaitProof(wrReplies[idx].InstanceID,
+				wrProofs[idx], err = baseCl.WaitProof(wrReply.InstanceID,
 					time.Duration(commons.WP_INTERVAL), nil)
 				if err != nil {
 					log.Error(err)
@@ -343,90 +354,100 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 		}
 
 		txnIdx := 0
+		wIdx := -1
+		rIdx := -1
 		for blkIdx := 0; blkIdx < s.NumBlks; blkIdx++ {
 			numTxns := s.Blks[blkIdx]
 			txns := s.Txns[txnIdx : txnIdx+numTxns]
 			txnIdx += numTxns
-			wIdx := 0
-			rIdx := 0
 			wg.Add(numTxns)
 			for i := 0; i < numTxns; i++ {
 				if txns[i] == 1 {
 					// Write
-					go func(idx int) {
+					wIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", wIdx))
-						replies := ccs[idx].VerifyWriteAll(config.Roster, writes[idx],
-							shares[idx], rands[idx])
-						if len(replies) < s.VerifyThreshold {
-							log.Errorf("not enough verifications")
-						}
-						sigs[idx] = make(map[int][]byte)
-						for id, r := range replies {
-							sigs[idx][id] = r.Sig
-						}
-						wrReplies[idx], err = ccs[idx].AddWrite(writes[idx],
-							sigs[idx], s.VerifyThreshold, writers[idx],
-							wCtrs[idx], *wDarc, wait)
+						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", idx))
+						// Prepare write
+						var commitments [][]byte
+						poly := pqots.GenerateSSPoly(s.Threshold)
+						shs, rs, commitments, err := pqots.GenerateCommitments(poly, s.NodeCount)
 						if err != nil {
 							log.Error(err)
 						}
-						wCtrs[idx]++
-
-						wrProofs[idx], err = ccs[idx].WaitProof(wrReplies[idx].InstanceID,
+						ticket := make([]byte, 32)
+						rand.Read(ticket)
+						_, ctxtHash, err := pqots.Encrypt(poly.Secret(), ticket)
+						write := &pqots.Write{Commitments: commitments,
+							Publics:  s.Publics,
+							CtxtHash: ctxtHash}
+						// Add write
+						reply, err := ccs[clIdx].VerifyWriteAll(s.VerifyThreshold, config.Roster,
+							write, shs, rs)
+						if err != nil {
+							log.Error(err)
+						}
+						wrReply, err := ccs[clIdx].AddWrite(write,
+							reply.Sigs, s.VerifyThreshold, writers[clIdx],
+							wCtrs[clIdx], *wDarc, wait)
+						if err != nil {
+							log.Error(err)
+						}
+						wCtrs[clIdx]++
+						wp, err := ccs[clIdx].WaitProof(wrReply.InstanceID,
 							time.Duration(commons.WP_INTERVAL), nil)
 						if err != nil {
 							log.Error(err)
 						}
-						if !wrProofs[idx].InclusionProof.Match(wrReplies[idx].InstanceID.Slice()) {
+						if !wp.InclusionProof.Match(wrReply.InstanceID.Slice()) {
 							log.Errorf("write inclusion proof does not match")
 						}
 						wm.Record()
-					}(wIdx)
-					wIdx++
+					}(i, wIdx)
 				} else {
 					// Read
-					go func(idx int) {
+					rIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", rIdx))
-						rReplies[idx], err = ccs[idx].AddRead(wrProofs[idx], readers[idx],
-							rCtrs[idx], wait)
+						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", idx))
+						modIdx := idx % MAX_TXN_CNT
+						rReply, err := ccs[clIdx].AddRead(wrProofs[modIdx],
+							readers[modIdx], rCtrs[modIdx], wait)
 						if err != nil {
 							log.Error(err)
 						}
-						rCtrs[idx]++
+						rCtrs[modIdx]++
 
-						rProofs[idx], err = ccs[idx].WaitProof(rReplies[idx].InstanceID,
+						rProof, err := ccs[clIdx].WaitProof(rReply.InstanceID,
 							time.Duration(commons.WP_INTERVAL), nil)
 						if err != nil {
 							log.Error(err)
 						}
-						if !rProofs[idx].InclusionProof.Match(rReplies[idx].InstanceID.Slice()) {
+						if !rProof.InclusionProof.Match(rReply.InstanceID.Slice()) {
 							log.Errorf("read inclusion proof does not match")
 						}
-						dkr, err := ccs[idx].DecryptKey(&pqots.PQOTSDKRequest{
+						dkr, err := ccs[clIdx].DecryptKey(&pqots.PQOTSDKRequest{
 							Roster:    config.Roster,
 							Threshold: s.Threshold,
-							Read:      *rProofs[idx],
-							Write:     *wrProofs[idx],
+							Read:      *rProof,
+							Write:     *wrProofs[modIdx],
 						})
 						if err != nil {
 							log.Error(err)
 						}
 						decShares := pqots.ElGamalDecrypt(cothority.Suite,
-							readers[idx].Ed25519.Secret, dkr.Reencryptions)
+							readers[modIdx].Ed25519.Secret, dkr.Reencryptions)
 						recSecret, err := share.RecoverSecret(cothority.Suite, decShares,
 							s.Threshold, s.NodeCount)
 						if err != nil {
 							log.Error(err)
 						}
-						_, err = pqots.Decrypt(recSecret, encData[idx])
+						_, err = pqots.Decrypt(recSecret, encData[modIdx])
 						if err != nil {
 							log.Error(err)
 						}
 						rm.Record()
-					}(rIdx)
-					rIdx++
+					}(i, rIdx)
 				}
 			}
 			wg.Wait()
@@ -437,14 +458,15 @@ func (s *SimulationService) runPQOTS(config *onet.SimulationConfig) error {
 
 func (s *SimulationService) prepareSCWrites(readers []darc.Signer) ([]*semicentral.SCWrite, [][]byte, error) {
 	var err error
-	encData := make([][]byte, s.NumTxns)
-	writes := make([]*semicentral.SCWrite, s.NumTxns)
+	encData := make([][]byte, MAX_TXN_CNT)
+	writes := make([]*semicentral.SCWrite, MAX_TXN_CNT)
 	for i := 0; i < MAX_TXN_CNT; i++ {
 		data := make([]byte, 32)
 		rand.Read(data)
 		writes[i], encData[i], err = semicentral.NewSCWrite(data,
 			readers[i].Ed25519.Point, s.serverPk)
 		if err != nil {
+			log.Error(err)
 			return nil, nil, err
 		}
 	}
@@ -453,15 +475,13 @@ func (s *SimulationService) prepareSCWrites(readers []darc.Signer) ([]*semicentr
 
 func (s *SimulationService) runSC(config *onet.SimulationConfig) error {
 	wait := 0
-	storedKeys := make([]string, s.NumTxns)
-	wrReplies := make([]*semicentral.WriteReply, s.NumTxns)
-	wrProofs := make([]*byzcoin.Proof, s.NumTxns)
-	rReplies := make([]*semicentral.ReadReply, s.NumTxns)
-	rProofs := make([]*byzcoin.Proof, s.NumTxns)
+	storedKeys := make([]string, MAX_TXN_CNT)
+	wrProofs := make([]*byzcoin.Proof, MAX_TXN_CNT)
 
 	for round := 0; round < s.Rounds; round++ {
 		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
+		writers, wCtrs, readers, rCtrs,
+			wDarc := commons.CreateMultiClientDarc(s.ProtoName, MAX_TXN_CNT)
 		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
 		if err != nil {
 			return err
@@ -479,6 +499,7 @@ func (s *SimulationService) runSC(config *onet.SimulationConfig) error {
 		if err != nil {
 			return err
 		}
+
 		var wg sync.WaitGroup
 		wg.Add(MAX_TXN_CNT)
 		for i := 0; i < MAX_TXN_CNT; i++ {
@@ -490,15 +511,13 @@ func (s *SimulationService) runSC(config *onet.SimulationConfig) error {
 					log.Error(err)
 				}
 				storedKeys[idx] = reply.StoredKey
-
-				wrReplies[idx], err = baseCl.AddWrite(writes[idx], writers[idx],
+				wReply, err := baseCl.AddWrite(writes[idx], writers[idx],
 					wCtrs[idx], *wDarc, wait)
 				if err != nil {
 					log.Error(err)
 				}
 				wCtrs[idx]++
-
-				wrProofs[idx], err = baseCl.WaitProof(wrReplies[idx].InstanceID,
+				wrProofs[idx], err = baseCl.WaitProof(wReply.InstanceID,
 					time.Duration(commons.WP_INTERVAL), nil)
 				if err != nil {
 					log.Error(err)
@@ -513,81 +532,89 @@ func (s *SimulationService) runSC(config *onet.SimulationConfig) error {
 		}
 
 		txnIdx := 0
+		wIdx := -1
+		rIdx := -1
 		for blkIdx := 0; blkIdx < s.NumBlks; blkIdx++ {
 			numTxns := s.Blks[blkIdx]
 			txns := s.Txns[txnIdx : txnIdx+numTxns]
 			txnIdx += numTxns
-			wIdx := 0
-			rIdx := 0
 			wg.Add(numTxns)
 			for i := 0; i < numTxns; i++ {
 				if txns[i] == 1 {
 					// Write
-					go func(idx int) {
+					wIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", wIdx))
-						reply, err := ccs[idx].StoreData(encData[idx], writes[idx].DataHash)
+						wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", idx))
+						// Prepare write
+						data := make([]byte, 32)
+						rand.Read(data)
+						wr, encD, err := semicentral.NewSCWrite(data,
+							readers[clIdx].Ed25519.Point, s.serverPk)
 						if err != nil {
 							log.Error(err)
 						}
-						storedKeys[idx] = reply.StoredKey
-
-						wrReplies[idx], err = ccs[idx].AddWrite(writes[idx], writers[idx],
-							wCtrs[idx], *wDarc, wait)
+						// Add write
+						_, err = ccs[clIdx].StoreData(encD, wr.DataHash)
 						if err != nil {
 							log.Error(err)
 						}
-						wCtrs[idx]++
-
-						wrProofs[idx], err = ccs[idx].WaitProof(wrReplies[idx].InstanceID,
-							time.Duration(commons.WP_INTERVAL), nil)
+						//storedKeys[idx] = reply.StoredKey
+						wrReply, err := ccs[clIdx].AddWrite(wr,
+							writers[clIdx], wCtrs[clIdx], *wDarc, wait)
 						if err != nil {
 							log.Error(err)
 						}
-						if !wrProofs[idx].InclusionProof.Match(wrReplies[idx].InstanceID.Slice()) {
+						wCtrs[clIdx]++
+						wp, err := ccs[clIdx].WaitProof(wrReply.
+							InstanceID, time.Duration(commons.WP_INTERVAL), nil)
+						if err != nil {
+							log.Error(err)
+						}
+						if !wp.InclusionProof.Match(wrReply.InstanceID.Slice()) {
 							log.Errorf("write inclusion proof does not match")
 						}
 						wm.Record()
-					}(wIdx)
-					wIdx++
+					}(i, wIdx)
 				} else {
 					// Read
-					go func(idx int) {
+					rIdx++
+					go func(clIdx int, idx int) {
 						defer wg.Done()
-						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", rIdx))
-						rReplies[idx], err = ccs[idx].AddRead(wrProofs[idx], readers[idx], rCtrs[idx], wait)
+						rm := monitor.NewTimeMeasure(fmt.Sprintf("r_%d", idx))
+						modIdx := idx % MAX_TXN_CNT
+						rReply, err := ccs[clIdx].AddRead(wrProofs[modIdx],
+							readers[modIdx], rCtrs[modIdx], wait)
 						if err != nil {
 							log.Error(err)
 						}
-						rCtrs[idx]++
+						rCtrs[modIdx]++
 
-						rProofs[idx], err = ccs[idx].WaitProof(rReplies[idx].InstanceID,
+						rProof, err := ccs[clIdx].WaitProof(rReply.InstanceID,
 							time.Duration(commons.WP_INTERVAL), nil)
 						if err != nil {
 							log.Error(err)
 						}
-						if !rProofs[idx].InclusionProof.Match(rReplies[idx].InstanceID.Slice()) {
+						if !rProof.InclusionProof.Match(rReply.InstanceID.Slice()) {
 							log.Errorf("read inclusion proof does not match")
 						}
 
-						dr, err := ccs[idx].Decrypt(&semicentral.DecryptRequest{
-							Write: *wrProofs[idx],
-							Read:  *rProofs[idx],
-							Key:   storedKeys[idx],
-						}, readers[idx].Ed25519.Secret)
+						dr, err := ccs[clIdx].Decrypt(&semicentral.SCDecryptRequest{
+							Write: *wrProofs[modIdx],
+							Read:  *rProof,
+							Key:   storedKeys[modIdx],
+						}, readers[modIdx].Ed25519.Secret)
 						if err != nil {
 							log.Error(err)
 						}
 						_, err = semicentral.RecoverData(dr.Data,
-							readers[idx].Ed25519.Secret, dr.K, dr.C)
+							readers[modIdx].Ed25519.Secret, dr.K, dr.C)
 						rm.Record()
-					}(rIdx)
-					rIdx++
+					}(i, rIdx)
 				}
 			}
 			wg.Wait()
 		}
-
 	}
 	return nil
 }
@@ -598,15 +625,14 @@ func (s *SimulationService) Run(config *onet.SimulationConfig) error {
 	s.NodeCount = len(config.Roster.List)
 	s.Publics = config.Roster.Publics()
 	s.Txns, s.Blks, err = ReadFile(s.TxnFile, s.BlkFile)
+	s.NumBlks = len(s.Blks)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
-
 	if len(s.Txns) != s.NumTxns {
 		return xerrors.New("read error")
 	}
-
 	if s.ProtoName == "OTS" {
 		s.Threshold = s.F + 1
 		err = s.runOTS(config)

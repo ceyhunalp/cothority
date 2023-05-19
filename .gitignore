@@ -32,6 +32,7 @@ bypros/storage/sqlstore/postgres
 **/microbenchmarks/microbenchmarks
 **/test_data/old/*
 
+**/protocol/protocol
 **/byzgen/byzgen
 **/lottery/lottery
 **/burst/burst

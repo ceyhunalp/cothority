@@ -9,7 +9,6 @@ import (
 	"go.dedis.ch/cothority/v3/calypso/pqots"
 	"go.dedis.ch/kyber/v3/share"
 	"go.dedis.ch/onet/v3/simul/monitor"
-	"golang.org/x/xerrors"
 	"math"
 	"math/rand"
 	"sort"
@@ -312,16 +311,13 @@ func (s *SimulationService) runPQOTSLottery(config *onet.SimulationConfig) error
 		writes[j] = &pqots.Write{Commitments: commitments,
 			Publics:  s.Publics,
 			CtxtHash: ctxtHash}
-		replies := baseCl.VerifyWriteAll(config.Roster, writes[j], shares,
-			rands)
-		if len(replies) < s.VerifyThreshold {
-			log.Errorf("not enough verifications")
-			return xerrors.New("not enough verifications")
+		reply, err := baseCl.VerifyWriteAll(s.VerifyThreshold, config.Roster,
+			writes[j], shares, rands)
+		if err != nil {
+			log.Error(err)
+			return err
 		}
-		sigs[j] = make(map[int][]byte)
-		for id, r := range replies {
-			sigs[j][id] = r.Sig
-		}
+		sigs[j] = reply.Sigs
 		encTickets[j] = ctxt
 	}
 

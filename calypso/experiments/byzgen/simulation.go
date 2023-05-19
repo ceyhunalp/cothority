@@ -255,7 +255,7 @@ func (s *SimulationService) runOTS(config *onet.SimulationConfig) error {
 						if err != nil {
 							log.Error(err)
 						}
-						_, err = ots.Decrypt(recSecret, encData[wIdx])
+						_, err = ots.Decrypt(recSecret, encData[modIdx])
 						if err != nil {
 							log.Error(err)
 						}

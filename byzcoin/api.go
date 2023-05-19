@@ -501,7 +501,7 @@ func (c *Client) GetChainConfig() (*ChainConfig, error) {
 // TODO: remove interval and take it directly from the Client-structure.
 func (c *Client) WaitProof(id InstanceID, interval time.Duration, value []byte) (*Proof, error) {
 	var pr Proof
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 600; i++ {
 		// try to get the darc back, we should get the genesis back instead
 		resp, err := c.GetProof(id.Slice())
 		if err != nil {
@@ -528,7 +528,8 @@ func (c *Client) WaitProof(id InstanceID, interval time.Duration, value []byte) 
 		}
 
 		// wait for the block to be processed
-		time.Sleep(interval / 5)
+		//time.Sleep(interval / 5)
+		time.Sleep(interval * time.Second)
 	}
 
 	return nil, xerrors.New("timeout reached and inclusion not found")

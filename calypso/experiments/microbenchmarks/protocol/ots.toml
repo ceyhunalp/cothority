@@ -1,6 +1,6 @@
 Simulation = "ProtocolSim"
 Servers = 1
-Rounds = 10
+Rounds = 30
 RunWait = "60000s"
 Delay = 100
 Bandwidth = 100

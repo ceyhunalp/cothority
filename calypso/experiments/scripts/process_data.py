@@ -92,6 +92,55 @@ def process_burst(data_read, proto):
             data = [k, mean_val, min_val, max_val, std_val]
             writer.writerow(data)
 
+def process_burst_partial(data_read, proto):
+    write_times = dict()
+    read_times = dict()
+    wall_str = "wall_avg"
+    for dr in data_read:
+        num_txns = int(dr['numtxns'])
+        write_vals = list()
+        read_vals = list()
+        for i in range(num_txns):
+            w_val = float(dr[f'wr_{i}_{wall_str}'])  
+            r_val = float(dr[f'r_{i}_{wall_str}'])  
+            write_vals.append(w_val)
+            read_vals.append(r_val)
+        wr_mean = np.mean(write_vals)
+        r_mean = np.mean(read_vals)
+        if num_txns not in write_times:
+            write_times[num_txns] = [wr_mean]
+            read_times[num_txns] = [r_mean]
+        else:
+            write_times[num_txns].append(wr_mean)
+            read_times[num_txns].append(r_mean)
+    
+    print(write_times)
+    print(read_times)
+    wr_path = os.path.join(cwd, BASE_DIR, 'burst', f'{proto}_part_w.csv')
+    with open(wr_path, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(large_hdr)
+        for k in write_times:
+            vals = np.array(write_times[k])
+            min_val = np.min(vals)
+            max_val = np.max(vals)
+            mean_val = np.mean(vals)
+            std_val = np.std(vals)
+            data = [k, mean_val, min_val, max_val, std_val]
+            writer.writerow(data)
+    r_path = os.path.join(cwd, BASE_DIR, 'burst', f'{proto}_part_r.csv')
+    with open(r_path, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(large_hdr)
+        for k in read_times:
+            vals = np.array(read_times[k])
+            min_val = np.min(vals)
+            max_val = np.max(vals)
+            mean_val = np.mean(vals)
+            std_val = np.std(vals)
+            data = [k, mean_val, min_val, max_val, std_val]
+            writer.writerow(data)
+
 def process_lotto(data_read, proto, isBatch):
     txn_vals = list()
     latency_vals = list()
@@ -165,11 +214,15 @@ def main():
     parser.add_argument('exp_type', choices=['micro', 'burst', 'lotto', 'byzgen'], type=str)
     parser.add_argument('-p', dest='proto', choices=['ots', 'pqots', 'sc'], type=str)
     parser.add_argument('-b', dest='batch', action='store_true')
+    parser.add_argument('-pa', dest='partial', action='store_true')
 
     args = parser.parse_args()
     data_read = read_data(args.fname)
     if "burst" in args.exp_type:
-        process_burst(data_read, args.proto)
+        if args.partial:
+            process_burst_partial(data_read, args.proto)
+        else:
+            process_burst(data_read, args.proto)
     elif "lotto" in args.exp_type:
         process_lotto(data_read, args.proto, args.batch)
     elif "byzgen" in args.exp_type:

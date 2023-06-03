@@ -1,24 +1,23 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
+	"go.dedis.ch/cothority/v3"
 	"go.dedis.ch/cothority/v3/byzcoin"
 	"go.dedis.ch/cothority/v3/calypso/experiments/semicentral"
 	"go.dedis.ch/cothority/v3/calypso/pqots"
+	"go.dedis.ch/kyber/v3"
 	"go.dedis.ch/kyber/v3/share"
+	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/onet/v3/simul/monitor"
 	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"go.dedis.ch/cothority/v3"
 	"go.dedis.ch/cothority/v3/calypso/experiments/commons"
 	"go.dedis.ch/cothority/v3/calypso/ots"
-	"go.dedis.ch/kyber/v3"
 	"go.dedis.ch/kyber/v3/share/pvss"
-	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/onet/v3/log"
 )
 
@@ -78,53 +77,53 @@ func (s *SimulationService) runOTSBurst(config *onet.SimulationConfig) error {
 	rReplies := make([]*ots.ReadReply, s.NumTxns)
 	rProofs := make([]*byzcoin.Proof, s.NumTxns)
 
-	for round := 0; round < s.Rounds; round++ {
-		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
-		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
-		if err != nil {
-			return err
-		}
-		baseCl := ots.NewClient(byzd.Cl)
+	// Setup
+	writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
+	byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
+	if err != nil {
+		return err
+	}
+	baseCl := ots.NewClient(byzd.Cl)
 
-		_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, commons.TXN_WAIT)
+	_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, commons.TXN_WAIT)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	byzd.AdminCtr++
+
+	// Prepare OTS writes
+	for i := 0; i < s.NumTxns; i++ {
+		sh, _, pr, secret, err := ots.RunPVSS(cothority.Suite,
+			s.NodeCount, s.Threshold, s.Publics, wDarc.GetID())
 		if err != nil {
 			log.Error(err)
 			return err
 		}
-		byzd.AdminCtr++
-
-		// Prepare OTS writes
-		for i := 0; i < s.NumTxns; i++ {
-			sh, _, pr, secret, err := ots.RunPVSS(cothority.Suite,
-				s.NodeCount, s.Threshold, s.Publics, wDarc.GetID())
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			data := make([]byte, 32)
-			rand.Read(data)
-			ctxt, ctxtHash, err := ots.Encrypt(cothority.Suite, secret, data)
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			writes[i] = &ots.Write{
-				PolicyID: wDarc.GetID(),
-				Shares:   sh,
-				Proofs:   pr,
-				Publics:  s.Publics,
-				CtxtHash: ctxtHash,
-			}
-			encData[i] = ctxt
-			shares[i] = sh
+		data := make([]byte, 32)
+		rand.Read(data)
+		ctxt, ctxtHash, err := ots.Encrypt(cothority.Suite, secret, data)
+		if err != nil {
+			log.Error(err)
+			return err
 		}
-
-		ccs := make([]*ots.Client, s.NumTxns)
-		for i := 0; i < s.NumTxns; i++ {
-			ccs[i] = ots.NewClient(byzcoin.NewClient(byzd.Cl.ID, byzd.Cl.Roster))
+		writes[i] = &ots.Write{
+			PolicyID: wDarc.GetID(),
+			Shares:   sh,
+			Proofs:   pr,
+			Publics:  s.Publics,
+			CtxtHash: ctxtHash,
 		}
+		encData[i] = ctxt
+		shares[i] = sh
+	}
 
+	ccs := make([]*ots.Client, s.NumTxns)
+	for i := 0; i < s.NumTxns; i++ {
+		ccs[i] = ots.NewClient(byzcoin.NewClient(byzd.Cl.ID, byzd.Cl.Roster))
+	}
+
+	for round := 0; round < s.Rounds; round++ {
 		wait := 0
 		var wg sync.WaitGroup
 		wg.Add(s.NumTxns)
@@ -197,13 +196,8 @@ func (s *SimulationService) runOTSBurst(config *onet.SimulationConfig) error {
 			}(i)
 		}
 		wg.Wait()
-
-		//for i := 0; i < s.NumTxns; i++ {
-		//	err := ccs[i].Close()
-		//	if err != nil {
-		//		log.Error(err)
-		//	}
-		//}
+		//log.Info(round)
+		//time.Sleep(10 * time.Second)
 	}
 	return nil
 }
@@ -213,55 +207,54 @@ func (s *SimulationService) runPQOTSBurst(config *onet.SimulationConfig) error {
 	writes := make([]*pqots.Write, s.NumTxns)
 	shares := make([][]*share.PriShare, s.NumTxns)
 	rands := make([][][]byte, s.NumTxns)
-	sigs := make([]map[int][]byte, s.NumTxns)
 	wrReplies := make([]*pqots.WriteReply, s.NumTxns)
 	wrProofs := make([]*byzcoin.Proof, s.NumTxns)
 	rReplies := make([]*pqots.ReadReply, s.NumTxns)
 	rProofs := make([]*byzcoin.Proof, s.NumTxns)
 
-	for round := 0; round < s.Rounds; round++ {
-		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
-		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
-		if err != nil {
-			return err
-		}
-		baseCl := pqots.NewClient(byzd.Cl)
+	// Setup
+	writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
+	byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
+	if err != nil {
+		return err
+	}
+	baseCl := pqots.NewClient(byzd.Cl)
 
-		_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc,
-			*wDarc, commons.TXN_WAIT)
+	_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc,
+		*wDarc, commons.TXN_WAIT)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	byzd.AdminCtr++
+
+	// Generate writes and collect signatures
+	for i := 0; i < s.NumTxns; i++ {
+		var commitments [][]byte
+		var err error
+		poly := pqots.GenerateSSPoly(s.Threshold)
+		shares[i], rands[i], commitments, err = pqots.GenerateCommitments(poly,
+			s.NodeCount)
 		if err != nil {
 			log.Error(err)
 			return err
 		}
-		byzd.AdminCtr++
+		ticket := make([]byte, 32)
+		rand.Read(ticket)
+		ctxt, ctxtHash, err := pqots.Encrypt(poly.Secret(), ticket)
+		writes[i] = &pqots.Write{Commitments: commitments,
+			Publics:  s.Publics,
+			CtxtHash: ctxtHash}
+		encData[i] = ctxt
+	}
 
-		// Generate writes and collect signatures
-		for i := 0; i < s.NumTxns; i++ {
-			var commitments [][]byte
-			var err error
-			poly := pqots.GenerateSSPoly(s.Threshold)
-			shares[i], rands[i], commitments, err = pqots.GenerateCommitments(poly,
-				s.NodeCount)
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			ticket := make([]byte, 32)
-			rand.Read(ticket)
-			ctxt, ctxtHash, err := pqots.Encrypt(poly.Secret(), ticket)
-			writes[i] = &pqots.Write{Commitments: commitments,
-				Publics:  s.Publics,
-				CtxtHash: ctxtHash}
-			encData[i] = ctxt
-		}
+	ccs := make([]*pqots.Client, s.NumTxns)
+	for i := 0; i < s.NumTxns; i++ {
+		ccs[i] = pqots.NewClient(byzcoin.NewClient(byzd.Cl.ID,
+			byzd.Cl.Roster))
+	}
 
-		ccs := make([]*pqots.Client, s.NumTxns)
-		for i := 0; i < s.NumTxns; i++ {
-			ccs[i] = pqots.NewClient(byzcoin.NewClient(byzd.Cl.ID,
-				byzd.Cl.Roster))
-		}
-
+	for round := 0; round < s.Rounds; round++ {
 		wait := 0
 		var wg sync.WaitGroup
 		wg.Add(s.NumTxns)
@@ -269,18 +262,13 @@ func (s *SimulationService) runPQOTSBurst(config *onet.SimulationConfig) error {
 			go func(idx int) {
 				defer wg.Done()
 				wm := monitor.NewTimeMeasure(fmt.Sprintf("wr_%d", idx))
-				replies := ccs[idx].VerifyWriteAll(config.Roster, writes[idx],
-					shares[idx], rands[idx])
-				if len(replies) < s.VerifyThreshold {
-					log.Errorf("not enough verifications")
+				reply, err := ccs[idx].VerifyWriteAll(s.VerifyThreshold,
+					config.Roster, writes[idx], shares[idx], rands[idx])
+				if err != nil {
+					log.Error(err)
 				}
-				sigs[idx] = make(map[int][]byte)
-				for id, r := range replies {
-					sigs[idx][id] = r.Sig
-				}
-
 				wrReplies[idx], err = ccs[idx].AddWrite(writes[idx],
-					sigs[idx], s.VerifyThreshold, writers[idx],
+					reply.Sigs, s.VerifyThreshold, writers[idx],
 					wCtrs[idx], *wDarc, wait)
 				if err != nil {
 					log.Error(err)
@@ -338,13 +326,13 @@ func (s *SimulationService) runPQOTSBurst(config *onet.SimulationConfig) error {
 			}(i)
 		}
 		wg.Wait()
+		//log.Info(round)
+		//time.Sleep(10 * time.Second)
 	}
 	return nil
 }
 
 func (s *SimulationService) runSCBurst(config *onet.SimulationConfig) error {
-	//TODO: Remove ptData
-	ptData := make([][]byte, s.NumTxns)
 	encData := make([][]byte, s.NumTxns)
 	storedKeys := make([]string, s.NumTxns)
 	writes := make([]*semicentral.SCWrite, s.NumTxns)
@@ -353,22 +341,28 @@ func (s *SimulationService) runSCBurst(config *onet.SimulationConfig) error {
 	rReplies := make([]*semicentral.ReadReply, s.NumTxns)
 	rProofs := make([]*byzcoin.Proof, s.NumTxns)
 
+	// Setup
+	writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
+	byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
+	if err != nil {
+		return err
+	}
+	baseCl := semicentral.NewClient(byzd.Cl)
+
+	_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, commons.TXN_WAIT)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	byzd.AdminCtr++
+
+	ccs := make([]*semicentral.Client, s.NumTxns)
+	for i := 0; i < s.NumTxns; i++ {
+		ccs[i] = semicentral.NewClient(byzcoin.NewClient(byzd.Cl.ID,
+			byzd.Cl.Roster))
+	}
+
 	for round := 0; round < s.Rounds; round++ {
-		// Setup
-		writers, wCtrs, readers, rCtrs, wDarc := commons.CreateMultiClientDarc(s.ProtoName, s.NumTxns)
-		byzd, err := commons.SetupByzcoin(config.Roster, s.BlockTime)
-		if err != nil {
-			return err
-		}
-		baseCl := semicentral.NewClient(byzd.Cl)
-
-		_, err = baseCl.SpawnDarc(byzd.Admin, byzd.AdminCtr, *byzd.GDarc, *wDarc, commons.TXN_WAIT)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		byzd.AdminCtr++
-
 		for i := 0; i < s.NumTxns; i++ {
 			data := make([]byte, 32)
 			rand.Read(data)
@@ -377,13 +371,6 @@ func (s *SimulationService) runSCBurst(config *onet.SimulationConfig) error {
 			if err != nil {
 				return err
 			}
-			ptData[i] = data
-		}
-
-		ccs := make([]*semicentral.Client, s.NumTxns)
-		for i := 0; i < s.NumTxns; i++ {
-			ccs[i] = semicentral.NewClient(byzcoin.NewClient(byzd.Cl.ID,
-				byzd.Cl.Roster))
 		}
 
 		wait := 0
@@ -432,21 +419,23 @@ func (s *SimulationService) runSCBurst(config *onet.SimulationConfig) error {
 					log.Errorf("read inclusion proof does not match")
 				}
 
-				dr, err := ccs[idx].Decrypt(&semicentral.DecryptRequest{
+				dr, err := ccs[idx].Decrypt(&semicentral.SCDecryptRequest{
 					Write: *wrProofs[idx],
 					Read:  *rProofs[idx],
 					Key:   storedKeys[idx],
+					Sig:   nil,
 				}, readers[idx].Ed25519.Secret)
 				if err != nil {
 					log.Error(err)
 				}
-				data, err := semicentral.RecoverData(dr.Data, readers[idx].Ed25519.Secret, dr.K, dr.C)
-				log.Info("Recovered?", bytes.Equal(data, ptData[idx]))
+				_, err = semicentral.RecoverData(dr.Data,
+					readers[idx].Ed25519.Secret, dr.K, dr.C)
 				rm.Record()
 			}(i)
 		}
 		wg.Wait()
-
+		//log.Info(round)
+		//time.Sleep(10 * time.Second)
 	}
 	return nil
 }

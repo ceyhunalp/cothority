@@ -2,7 +2,6 @@ package semicentral
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"go.dedis.ch/cothority/v3"
 	"go.dedis.ch/cothority/v3/byzcoin"
@@ -13,7 +12,6 @@ import (
 	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/onet/v3/log"
 	"go.dedis.ch/onet/v3/network"
-	"go.dedis.ch/protobuf"
 	"golang.org/x/xerrors"
 	"sync"
 )
@@ -57,49 +55,49 @@ type storage struct {
 	sync.Mutex
 }
 
-//func (s *Service) StoreData(req *StoreRequest) (*StoreReply, error) {
-//	storedKey, err := s.db.StoreData(req)
-//	if err != nil {
-//		return nil, err
-//	}
-//	reply := &StoreReply{
-//		StoredKey: storedKey,
-//	}
-//	return reply, nil
-//}
-
 func (s *Service) StoreData(req *StoreRequest) (*StoreReply, error) {
-	dataHash := sha256.Sum256(req.Data)
-	if bytes.Compare(dataHash[:], req.DataHash) != 0 {
-		return nil, xerrors.New("hashes do not match")
-	}
-	val, err := protobuf.Encode(req)
+	storedKey, err := s.db.StoreData(req)
 	if err != nil {
-		log.Error(err)
 		return nil, err
 	}
-	keyStr := hex.EncodeToString(dataHash[:])
-	s.skLock.Lock()
-	s.storedKeys[keyStr] = val
-	s.skLock.Unlock()
 	reply := &StoreReply{
-		StoredKey: keyStr,
+		StoredKey: storedKey,
 	}
 	return reply, nil
 }
 
+//func (s *Service) StoreData(req *StoreRequest) (*StoreReply, error) {
+//	dataHash := sha256.Sum256(req.Data)
+//	if bytes.Compare(dataHash[:], req.DataHash) != 0 {
+//		return nil, xerrors.New("hashes do not match")
+//	}
+//	val, err := protobuf.Encode(req)
+//	if err != nil {
+//		log.Error(err)
+//		return nil, err
+//	}
+//	keyStr := hex.EncodeToString(dataHash[:])
+//	s.skLock.Lock()
+//	s.storedKeys[keyStr] = val
+//	s.skLock.Unlock()
+//	reply := &StoreReply{
+//		StoredKey: keyStr,
+//	}
+//	return reply, nil
+//}
+
 func (s *Service) Decrypt(req *SCDecryptRequest) (*SCDecryptReply, error) {
 	sk := s.ServerIdentity().GetPrivate()
-	//storedData, err := s.db.GetStoredData(req.Key)
-	var storedData StoreRequest
-	val := s.storedKeys[req.Key]
-	err := protobuf.Decode(val, &storedData)
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
-	writeTxn, err := s.verifyDecryptRequest(req, &storedData)
-	//writeTxn, err := s.verifyDecryptRequest(req, storedData)
+	storedData, err := s.db.GetStoredData(req.Key)
+	//var storedData StoreRequest
+	//val := s.storedKeys[req.Key]
+	//err := protobuf.Decode(val, &storedData)
+	//if err != nil {
+	//	log.Error(err)
+	//	return nil, err
+	//}
+	//writeTxn, err := s.verifyDecryptRequest(req, &storedData)
+	writeTxn, err := s.verifyDecryptRequest(req, storedData)
 	if err != nil {
 		log.Errorf("getDecryptedData error: %v", err)
 		return nil, err

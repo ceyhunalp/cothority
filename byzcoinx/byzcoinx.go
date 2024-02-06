@@ -184,7 +184,8 @@ func (bft *ByzCoinX) Dispatch() error {
 	select {
 	case commitSig = <-commitProto.FinalSignature:
 		log.Lvl2(bft.ServerIdentity(), "Finished commit phase")
-	case <-time.After(bft.Timeout / time.Duration(2) * time.Duration(bft.SubleaderFailures+1)):
+	case <-time.After(1800 * time.Second):
+		//case <-time.After(bft.Timeout / time.Duration(2) * time.Duration(bft.SubleaderFailures+1)):
 		// Waiting for bft.Timeout is too long here but used as a safeguard in
 		// case the commitProto does not return in time.
 		log.Error(bft.ServerIdentity().Address, "timeout should not happen while waiting for signature")

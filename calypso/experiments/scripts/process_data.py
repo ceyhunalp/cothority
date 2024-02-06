@@ -43,7 +43,7 @@ def process_micro(data_read, proto):
             vals.append(val)
         latency_vals[cmt_sz] = vals
 
-    outpath = os.path.join(cwd, BASE_DIR, 'micro', f'{proto}.csv') 
+    outpath = os.path.join(cwd, BASE_DIR, 'micro', f'{proto}.csv')
     with open(outpath, 'w') as f:
         writer = csv.writer(f)
         writer.writerow(hdr)
@@ -60,8 +60,8 @@ def process_burst(data_read, proto):
         write_vals = list()
         read_vals = list()
         for i in range(num_txns):
-            w_val = float(dr[f'wr_{i}_{wall_str}'])  
-            r_val = float(dr[f'r_{i}_{wall_str}'])  
+            w_val = float(dr[f'wr_{i}_{wall_str}'])
+            r_val = float(dr[f'r_{i}_{wall_str}'])
             write_vals.append(w_val)
             read_vals.append(r_val)
         write_times[num_txns] = write_vals
@@ -101,8 +101,8 @@ def process_burst_partial(data_read, proto):
         write_vals = list()
         read_vals = list()
         for i in range(num_txns):
-            w_val = float(dr[f'wr_{i}_{wall_str}'])  
-            r_val = float(dr[f'r_{i}_{wall_str}'])  
+            w_val = float(dr[f'wr_{i}_{wall_str}'])
+            r_val = float(dr[f'r_{i}_{wall_str}'])
             write_vals.append(w_val)
             read_vals.append(r_val)
         wr_mean = np.mean(write_vals)
@@ -113,7 +113,7 @@ def process_burst_partial(data_read, proto):
         else:
             write_times[num_txns].append(wr_mean)
             read_times[num_txns].append(r_mean)
-    
+
     print(write_times)
     print(read_times)
     wr_path = os.path.join(cwd, BASE_DIR, 'burst', f'{proto}_part_w.csv')
@@ -172,7 +172,7 @@ def process_lotto(data_read, proto, isBatch):
             writer.writerow(data)
 
 def process_byzgen(data_read, proto):
-    write_vals = list() 
+    write_vals = list()
     read_vals = list()
     for dr in data_read:
         num_wtxns = int(dr['numwritetxns'])
@@ -183,7 +183,7 @@ def process_byzgen(data_read, proto):
         for i in range(num_rtxns):
             val = float(dr[f'r_{i}_wall_avg'])
             read_vals.append(val)
-    
+
     fpath = os.path.join(cwd, BASE_DIR, 'byzgen', f'{proto}_write.csv')
     with open(fpath, 'w') as f:
         writer = csv.writer(f)

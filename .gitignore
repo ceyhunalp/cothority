@@ -42,3 +42,5 @@ bypros/storage/sqlstore/postgres
 **/save/backup/
 **/backup/
 **/save/partials/
+
+*.csv

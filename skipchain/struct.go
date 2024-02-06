@@ -7,19 +7,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"go.dedis.ch/kyber/v3"
+	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/protobuf"
 	"math"
 	"strconv"
 	"sync"
 	"time"
 
-
 	"go.dedis.ch/cothority/v3/blscosi/bdnproto"
 	"go.dedis.ch/cothority/v3/blscosi/protocol"
 	"go.dedis.ch/cothority/v3/byzcoinx"
-	"go.dedis.ch/kyber/v3"
 	"go.dedis.ch/kyber/v3/pairing"
-	"go.dedis.ch/onet/v3"
 	"go.dedis.ch/onet/v3/log"
 	"go.dedis.ch/onet/v3/network"
 	"golang.org/x/xerrors"
@@ -35,7 +34,9 @@ var ErrorInconsistentForwardLink = errors.New("found inconsistent forward-link")
 // How long to wait before a timeout is generated in the propagation. It is not
 // set to a constant because we'd like to change it in the test.
 //var defaultPropagateTimeout = 15 * time.Second
-var defaultPropagateTimeout = 300 * time.Second
+var defaultPropagateTimeout = 1500 * time.Second
+
+//var defaultPropagateTimeout = 600 * time.Second
 
 // SkipBlockID represents the Hash of the SkipBlock
 type SkipBlockID []byte

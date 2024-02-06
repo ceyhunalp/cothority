@@ -448,7 +448,9 @@ func (s *Service) AddTransaction(req *AddTxRequest) (*AddTxResponse, error) {
 	ch := s.notifications.registerForBlocks()
 	defer s.notifications.unregisterForBlocks(ch)
 
-	if s.ServerIdentity().Equal(leader) {
+	isExperimental := true
+
+	if s.ServerIdentity().Equal(leader) || isExperimental {
 		s.txPipelinesMutex.Lock()
 		txp, ok := s.txPipeline[string(req.SkipchainID)]
 		if !ok {
